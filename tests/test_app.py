@@ -172,3 +172,55 @@ def test_signed_in_user_without_permission_cannot_configure(tmp_path: Path):
         authenticate(client, app, sub="second", email="second@example.com")
         assert client.get("/").status_code == 403
         assert client.get("/api/feeds").status_code == 403
+
+
+def test_versioned_config_export_import_roundtrip(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    with TestClient(app) as client:
+        authenticate(client, app)
+        feed_id = client.post("/api/feeds", json={
+            "name": "Configured feed", "source_url": "https://example.com/feed.xml",
+            "refresh_interval": 45,
+        }).json()["id"]
+        client.post(f"/api/feeds/{feed_id}/rules", json={
+            "field": "title", "operator": "contains", "value": "Sport", "action": "exclude",
+        })
+
+        exported_response = client.get("/api/config/export")
+        assert exported_response.status_code == 200
+        assert "attachment;" in exported_response.headers["content-disposition"]
+        exported = exported_response.json()
+        assert exported["app_version"] == "0.1.0"
+        assert exported["schema_version"] == 1
+        assert exported["config_version"] == 3
+        assert exported["feeds"][0]["rules"][0]["value"] == "Sport"
+        assert "users" not in exported
+        assert "permissions" not in exported
+        config_page = client.get("/admin/config")
+        assert config_page.status_code == 200
+        assert "App-Version" in config_page.text
+        assert "Config-Version" in config_page.text
+
+        client.post("/api/feeds", json={
+            "name": "Temporary", "source_url": "https://example.com/temporary.xml",
+        })
+        imported = client.post("/api/config/import", json=exported)
+        assert imported.status_code == 200
+        assert imported.json() == {"imported_feeds": 1, "config_version": 3}
+        feeds = client.get("/api/feeds").json()
+        assert [feed["name"] for feed in feeds] == ["Configured feed"]
+        assert app.state.configuration_service.revision() == 3
+
+
+def test_config_import_rejects_incompatible_schema_without_changes(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    with TestClient(app) as client:
+        authenticate(client, app)
+        client.post("/api/feeds", json={
+            "name": "Keep me", "source_url": "https://example.com/feed.xml",
+        })
+        document = client.get("/api/config/export").json()
+        document["schema_version"] = 999
+        response = client.post("/api/config/import", json=document)
+        assert response.status_code == 409
+        assert client.get("/api/feeds").json()[0]["name"] == "Keep me"

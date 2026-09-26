@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS user_permissions (
   granted_at TEXT NOT NULL,
   PRIMARY KEY(user_id, permission)
 );
+CREATE TABLE IF NOT EXISTS config_state (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  revision INTEGER NOT NULL CHECK(revision >= 1)
+);
+INSERT OR IGNORE INTO config_state(id, revision) VALUES(1, 1);
 """
 
 

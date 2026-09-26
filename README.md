@@ -67,6 +67,46 @@ Die generierten RSS-Feeds unter `/feed/{id}.xml`, die Kontrollansicht unter `/re
 
 Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist für lokale Tests davon ausgenommen. Wenn ein Reverse Proxy HTTPS beendet, muss er Host und Protokoll korrekt über `Forwarded` oder `X-Forwarded-*` weitergeben, damit FeedVanta die registrierte HTTPS-Callback-Adresse erzeugt. Client-Secret, Session-Secret und die lokale `.env` dürfen nicht ins Repository gelangen. Die Redirect-URI-Regeln und der Webserver-Flow sind in Googles offizieller Dokumentation beschrieben: [OAuth 2.0 for Web Server Applications](https://developers.google.com/identity/protocols/oauth2/web-server) und [Manage OAuth Clients](https://support.google.com/cloud/answer/15549257).
 
+## Versionierte Feedkonfiguration
+
+FeedVanta unterscheidet drei unabhängige Versionen:
+
+- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.1.0`.
+- **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats. Ein Import ist nur bei unterstützter Schema-Version möglich.
+- **Config-Version** (`config_version`): Revision der konkreten Feedkonfiguration. Sie wird bei jedem Hinzufügen oder Löschen eines Feeds und bei jeder Änderung der Filterregeln erhöht. Beim Import wird die Revision der importierten Konfiguration übernommen.
+
+Globale Administratoren erreichen Import und Export über **Konfiguration** in der Weboberfläche. Alternativ stehen die geschützten Endpunkte `GET /api/config/export` und `POST /api/config/import` zur Verfügung. Ein Import ersetzt die bestehende Feedkonfiguration vollständig.
+
+Das Exportformat enthält ausschließlich Feeds und Filterregeln:
+
+```json
+{
+  "app_version": "0.1.0",
+  "schema_version": 1,
+  "config_version": 12,
+  "exported_at": "2026-09-26T10:00:00+00:00",
+  "feeds": [
+    {
+      "name": "Example",
+      "source_url": "https://example.com/feed.xml",
+      "enabled": true,
+      "refresh_interval": 30,
+      "rules": [
+        {
+          "field": "title",
+          "operator": "contains",
+          "value": "Sport",
+          "action": "exclude",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Benutzer, Berechtigungen, OAuth-Daten, Sitzungen, heruntergeladene Artikel sowie abgeleitete Feed-Metadaten werden niemals mitexportiert.
+
 ## Filterlogik
 
 - Eine passende `exclude`-Regel blendet einen Artikel aus.
@@ -85,6 +125,8 @@ Feeds werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft. Zu
 - `POST /api/feeds/{id}/refresh` – Feed sofort abrufen
 - `DELETE /api/feeds/{id}` – Feed löschen
 - `DELETE /api/rules/{id}` – Regel löschen
+- `GET /api/config/export` – versionierte Feedkonfiguration exportieren
+- `POST /api/config/import` – versionierte Feedkonfiguration ersetzen
 - `GET /feed/{id}.xml` – gefilterter RSS-Feed
 - `GET /health` – Healthcheck
 

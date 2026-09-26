@@ -8,7 +8,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, HttpUrl
@@ -16,9 +16,11 @@ from dotenv import load_dotenv
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import AuthService, GLOBAL_ADMINISTRATION
+from .configuration import ConfigDocument, ConfigurationService, bump_config_revision
 from .db import Database
 from .models import utcnow
 from .services import FeedService
+from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 
 BASE_DIR = Path(__file__).parent
 load_dotenv()
@@ -80,6 +82,7 @@ def create_app(
     database.initialize()
     service = FeedService(database)
     auth_service = AuthService(database)
+    configuration_service = ConfigurationService(database)
     scheduler = BackgroundScheduler(daemon=True)
 
     @asynccontextmanager
@@ -91,7 +94,7 @@ def create_app(
         if scheduler.running:
             scheduler.shutdown(wait=False)
 
-    app = FastAPI(title="FeedVanta", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="FeedVanta", version=APP_VERSION, lifespan=lifespan)
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret or os.getenv("FEEDVANTA_SESSION_SECRET") or secrets.token_urlsafe(32),
@@ -101,6 +104,7 @@ def create_app(
     app.state.db = database
     app.state.service = service
     app.state.auth_service = auth_service
+    app.state.configuration_service = configuration_service
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     oauth = OAuth()
     google_client_id = os.getenv("GOOGLE_CLIENT_ID")
@@ -150,6 +154,8 @@ def create_app(
             raise HTTPException(403, "Global Administration erforderlich")
         return templates.TemplateResponse(request, "index.html", {
             "feeds": feeds_with_rules(), "current_user": user,
+            "app_version": APP_VERSION, "schema_version": CONFIG_SCHEMA_VERSION,
+            "config_version": configuration_service.revision(),
         })
 
     @app.get("/feeds/{feed_id}", response_class=HTMLResponse)
@@ -167,6 +173,46 @@ def create_app(
             "current_user": user, "users": auth_service.list_users(),
             "admin_permission": GLOBAL_ADMINISTRATION,
         })
+
+    @app.get("/admin/config", response_class=HTMLResponse)
+    def config_admin(request: Request, user: dict = Depends(require_admin)):
+        return templates.TemplateResponse(request, "config.html", {
+            "current_user": user, "app_version": APP_VERSION,
+            "schema_version": CONFIG_SCHEMA_VERSION,
+            "config_version": configuration_service.revision(),
+        })
+
+    @app.get("/api/config/export")
+    def export_config(_user: dict = Depends(require_admin)):
+        return Response(
+            configuration_service.export_json(), media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=feedvanta-config.json"},
+        )
+
+    @app.post("/api/config/import")
+    def import_config(document: ConfigDocument, _user: dict = Depends(require_admin)):
+        try:
+            count = configuration_service.import_document(document)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"imported_feeds": count, "config_version": document.config_version}
+
+    @app.post("/admin/config/import")
+    async def import_config_form(
+        request: Request, config_file: UploadFile = File(...),
+        _user: dict = Depends(require_admin),
+    ):
+        try:
+            payload = await config_file.read(1_000_001)
+            if len(payload) > 1_000_000:
+                raise HTTPException(413, "Konfigurationsdatei ist größer als 1 MB")
+            document = ConfigDocument.model_validate_json(payload)
+            configuration_service.import_document(document)
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(409, f"Konfiguration konnte nicht importiert werden: {exc}") from exc
+        return RedirectResponse(request.url_for("index"), status_code=303)
 
     @app.get("/login", response_class=HTMLResponse)
     def login(request: Request):
@@ -231,6 +277,7 @@ def create_app(
                     "INSERT INTO feeds(name,source_url,refresh_interval,created_at) VALUES(?,?,?,?)",
                     (payload.name, str(payload.source_url), payload.refresh_interval, utcnow()),
                 )
+                bump_config_revision(conn)
                 return cur.lastrowid
         except Exception as exc:
             if "UNIQUE" in str(exc):
@@ -251,6 +298,7 @@ def create_app(
         with database.connect() as conn:
             if not conn.execute("DELETE FROM feeds WHERE id=?", (feed_id,)).rowcount:
                 raise HTTPException(404, "Feed nicht gefunden")
+            bump_config_revision(conn)
 
     @app.post("/feeds/{feed_id}/delete")
     def delete_feed_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
@@ -265,6 +313,7 @@ def create_app(
                 "INSERT INTO filter_rules(feed_id,field,operator,value,action) VALUES(?,?,?,?,?)",
                 (feed_id, payload.field, payload.operator, payload.value, payload.action),
             )
+            bump_config_revision(conn)
         service.reapply_rules(feed_id)
         return cur.lastrowid
 
@@ -284,6 +333,7 @@ def create_app(
             if not row:
                 raise HTTPException(404, "Regel nicht gefunden")
             conn.execute("DELETE FROM filter_rules WHERE id=?", (rule_id,))
+            bump_config_revision(conn)
         service.reapply_rules(row["feed_id"])
         return row["feed_id"]
 
