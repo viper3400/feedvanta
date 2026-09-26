@@ -92,7 +92,7 @@ class FeedService:
                 "SELECT * FROM filter_rules WHERE feed_id = ?", (feed_id,)
             )]
         try:
-            request = Request(feed["source_url"], headers={"User-Agent": "FeedLens/0.1"})
+            request = Request(feed["source_url"], headers={"User-Agent": "FeedVanta/0.1"})
             with urlopen(request, timeout=20) as response:
                 parsed = feedparser.parse(response.read())
             if getattr(parsed, "bozo", False) and not parsed.entries:

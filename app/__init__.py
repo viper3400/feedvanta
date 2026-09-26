@@ -1,1 +1,1 @@
-"""Feed Lens application."""
+"""FeedVanta application."""

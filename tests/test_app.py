@@ -83,15 +83,15 @@ def test_delete_missing_returns_404(tmp_path: Path):
 
 def test_application_below_subpath(tmp_path: Path):
     core = create_app(str(tmp_path / "test.db"), start_scheduler=False)
-    app = SubpathMiddleware(core, "/feed-lens/")
+    app = SubpathMiddleware(core, "/feedvanta/")
     with TestClient(app) as client:
-        response = client.post("/feed-lens/api/feeds", json={
+        response = client.post("/feedvanta/api/feeds", json={
             "name": "Test", "source_url": "https://example.com/rss.xml"
         })
         assert response.status_code == 201
         feed_id = response.json()["id"]
-        page = client.get("/feed-lens/")
+        page = client.get("/feedvanta/")
         assert page.status_code == 200
-        assert f'http://testserver/feed-lens/reader/{feed_id}' in page.text
-        assert f'http://testserver/feed-lens/feed/{feed_id}.xml' in page.text
+        assert f'http://testserver/feedvanta/reader/{feed_id}' in page.text
+        assert f'http://testserver/feedvanta/feed/{feed_id}.xml' in page.text
         assert client.get("/").status_code == 404

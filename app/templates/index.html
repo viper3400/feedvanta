@@ -2,13 +2,13 @@
 <html lang="de">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Feed Lens</title>
+  <title>FeedVanta</title>
   <style>
     :root{font-family:system-ui,sans-serif;color:#18202a;background:#f4f6f8}body{max-width:980px;margin:3rem auto;padding:0 1rem}h1{margin-bottom:.25rem}.muted{color:#667085}.card{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:1.2rem;margin:1rem 0;box-shadow:0 2px 8px #0000000a}.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}input,select,button{font:inherit;padding:.55rem;border:1px solid #c8ced6;border-radius:7px}input[type=url],input[name=value]{flex:1;min-width:220px}button{cursor:pointer;background:#27364b;color:#fff}button.danger{background:#a12929}a{color:#155eef}.rule{background:#f6f8fa;padding:.55rem;margin:.4rem 0;border-radius:7px;display:flex;justify-content:space-between;align-items:center}.error{color:#a12929}
   </style>
 </head>
 <body>
-  <h1>Feed Lens</h1><p class="muted">Originalfeed → Filter → dein RSS-Feed</p>
+  <h1>FeedVanta</h1><p class="muted">Originalfeed → Filter → dein RSS-Feed</p>
   <section class="card"><h2>Feed hinzufügen</h2>
     <form class="row" method="post" action="{{ url_for('create_feed_form') }}">
       <input name="name" placeholder="Name" required maxlength="200">

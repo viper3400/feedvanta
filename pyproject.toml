@@ -1,5 +1,5 @@
 [project]
-name = "feed-lens"
+name = "feedvanta"
 version = "0.1.0"
 description = "Small RSS/Atom filter server for feed readers"
 requires-python = ">=3.11"

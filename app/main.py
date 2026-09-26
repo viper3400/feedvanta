@@ -68,7 +68,7 @@ class RuleCreate(BaseModel):
 
 
 def create_app(db_path: str | None = None, start_scheduler: bool = True) -> FastAPI:
-    database = Database(db_path or os.getenv("FEED_LENS_DB", "data/feed-lens.db"))
+    database = Database(db_path or os.getenv("FEEDVANTA_DB", "data/feedvanta.db"))
     database.initialize()
     service = FeedService(database)
     scheduler = BackgroundScheduler(daemon=True)
@@ -82,7 +82,7 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
         if scheduler.running:
             scheduler.shutdown(wait=False)
 
-    app = FastAPI(title="Feed Lens", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="FeedVanta", version="0.1.0", lifespan=lifespan)
     app.state.db = database
     app.state.service = service
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -225,8 +225,8 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
         display_name = feed["source_title"] or feed["name"]
         SubElement(channel, "title").text = display_name
         SubElement(channel, "link").text = feed["source_url"]
-        SubElement(channel, "description").text = f"Gefiltert durch Feed Lens: {display_name}"
-        SubElement(channel, "generator").text = "Feed Lens"
+        SubElement(channel, "description").text = f"Gefiltert durch FeedVanta: {display_name}"
+        SubElement(channel, "generator").text = "FeedVanta"
         SubElement(channel, "atom:link", {"href": str(request.url), "rel": "self", "type": "application/rss+xml"})
         if feed["icon_url"]:
             image = SubElement(channel, "image")
@@ -254,5 +254,5 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
 
 
 _core_app = create_app()
-_base_path = normalize_base_path(os.getenv("FEED_LENS_BASE_PATH", ""))
+_base_path = normalize_base_path(os.getenv("FEEDVANTA_BASE_PATH", ""))
 app = SubpathMiddleware(_core_app, _base_path) if _base_path else _core_app
