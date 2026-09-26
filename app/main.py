@@ -150,7 +150,22 @@ def create_app(
             raise HTTPException(403, "Global Administration erforderlich")
         return templates.TemplateResponse(request, "index.html", {
             "feeds": feeds_with_rules(), "current_user": user,
-            "users": auth_service.list_users(), "admin_permission": GLOBAL_ADMINISTRATION,
+        })
+
+    @app.get("/feeds/{feed_id}", response_class=HTMLResponse)
+    def feed_detail(request: Request, feed_id: int, user: dict = Depends(require_admin)):
+        feed = next((item for item in feeds_with_rules() if item["id"] == feed_id), None)
+        if not feed:
+            raise HTTPException(404, "Feed nicht gefunden")
+        return templates.TemplateResponse(request, "feed_detail.html", {
+            "feed": feed, "current_user": user,
+        })
+
+    @app.get("/admin/users", response_class=HTMLResponse)
+    def users_admin(request: Request, user: dict = Depends(require_admin)):
+        return templates.TemplateResponse(request, "users.html", {
+            "current_user": user, "users": auth_service.list_users(),
+            "admin_permission": GLOBAL_ADMINISTRATION,
         })
 
     @app.get("/login", response_class=HTMLResponse)
@@ -261,21 +276,25 @@ def create_app(
     def create_rule_form(request: Request, feed_id: int, field: str = Form(...), operator: str = Form(...),
                          value: str = Form(...), action: str = Form(...), _user: dict = Depends(require_admin)):
         insert_rule(feed_id, RuleCreate(field=field, operator=operator, value=value, action=action))
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
 
-    @app.delete("/api/rules/{rule_id}", status_code=204)
-    def delete_rule(rule_id: int, _user: dict = Depends(require_admin)):
+    def remove_rule(rule_id: int) -> int:
         with database.connect() as conn:
             row = conn.execute("SELECT feed_id FROM filter_rules WHERE id=?", (rule_id,)).fetchone()
             if not row:
                 raise HTTPException(404, "Regel nicht gefunden")
             conn.execute("DELETE FROM filter_rules WHERE id=?", (rule_id,))
         service.reapply_rules(row["feed_id"])
+        return row["feed_id"]
+
+    @app.delete("/api/rules/{rule_id}", status_code=204)
+    def delete_rule(rule_id: int, _user: dict = Depends(require_admin)):
+        remove_rule(rule_id)
 
     @app.post("/rules/{rule_id}/delete")
     def delete_rule_form(request: Request, rule_id: int, _user: dict = Depends(require_admin)):
-        delete_rule(rule_id, _user)
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        feed_id = remove_rule(rule_id)
+        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
 
     @app.post("/api/feeds/{feed_id}/refresh")
     def refresh(feed_id: int, _user: dict = Depends(require_admin)):
@@ -289,7 +308,7 @@ def create_app(
     @app.post("/feeds/{feed_id}/refresh")
     def refresh_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
         refresh(feed_id, _user)
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
 
     @app.post("/admin/users/{user_id}/global-administration")
     def update_global_administration(
@@ -302,7 +321,7 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(request.url_for("users_admin"), status_code=303)
 
     @app.get("/feed/{feed_id}.xml")
     def rss(feed_id: int, request: Request):

@@ -74,6 +74,11 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         overview = client.get("/")
         assert "1 sichtbar" in overview.text
         assert "1 ausgefiltert" in overview.text
+        assert "Regel hinzufügen" not in overview.text
+        details = client.get(f"/feeds/{feed_id}")
+        assert details.status_code == 200
+        assert "Regel hinzufügen" in details.text
+        assert "Feed löschen" in details.text
         rss = client.get(f"/feed/{feed_id}.xml")
         assert rss.status_code == 200
         assert rss.headers["content-type"].startswith("application/rss+xml")
