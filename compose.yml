@@ -1,0 +1,15 @@
+services:
+  feedvanta:
+    image: ${FEEDVANTA_IMAGE:-feedvanta:local}
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${FEEDVANTA_PORT:-8000}:8000"
+    volumes:
+      - feedvanta-data:/data
+
+volumes:
+  feedvanta-data:

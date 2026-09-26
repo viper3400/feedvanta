@@ -13,6 +13,35 @@ uvicorn app.main:app --reload
 
 Danach die Verwaltung unter <http://127.0.0.1:8000> öffnen. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
 
+### Docker Compose
+
+Lege zuerst deine lokale Konfiguration an und trage insbesondere die Google-OAuth- und Session-Werte ein:
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+Die Anwendung ist anschließend standardmäßig auf Port `8000` erreichbar. Die SQLite-Datenbank liegt im persistenten Volume `feedvanta-data`. Ein Update oder Austausch des Containers löscht die Konfiguration daher nicht.
+
+Für ein aus der GitHub Container Registry geladenes Image setzt du vor dem Start den vollständigen Image-Namen:
+
+```bash
+FEEDVANTA_IMAGE=ghcr.io/OWNER/REPOSITORY:1.2.3 docker compose up -d
+```
+
+Mit `FEEDVANTA_PORT` kann der veröffentlichte Host-Port geändert werden. Das Image läuft als unprivilegierter Benutzer und enthält einen Healthcheck für `/health` einschließlich eines konfigurierten Unterpfads.
+
+### Container-Releases
+
+Bei jedem neu gepushten Git-Tag führt `.github/workflows/publish-container.yml` zuerst die Tests aus und veröffentlicht danach ein Multi-Arch-Image für `linux/amd64` und `linux/arm64` unter:
+
+```text
+ghcr.io/OWNER/REPOSITORY:TAG
+```
+
+Semantische Tags wie `v1.2.3` erzeugen zusätzlich die passenden Versions-Aliase. Der Workflow authentifiziert sich mit dem eingebauten `GITHUB_TOKEN`; es ist kein separates Registry-Secret erforderlich. Neue GitHub-Packages sind standardmäßig möglicherweise privat und können in den Package-Einstellungen öffentlich geschaltet werden.
+
 ### Betrieb unter einem Unterpfad
 
 Die Anwendung lädt beim Start automatisch eine `.env`-Datei. Kopiere die Vorlage und passe sie bei Bedarf an:
