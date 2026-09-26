@@ -154,7 +154,7 @@ def test_configuration_requires_admin_but_feeds_are_public(tmp_path: Path):
         assert client.get("/", follow_redirects=False).status_code == 303
         login = client.get("/login")
         assert login.status_code == 200
-        assert "Google-Anmeldung ist noch nicht konfiguriert" in login.text
+        assert "FeedVanta" in login.text
         assert client.get("/api/feeds").status_code == 401
         assert client.get(f"/feed/{feed_id}.xml").status_code == 200
         assert client.get(f"/reader/{feed_id}").status_code == 200
