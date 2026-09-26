@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Feed Lens</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#18202a;background:#f4f6f8}body{max-width:980px;margin:3rem auto;padding:0 1rem}h1{margin-bottom:.25rem}.muted{color:#667085}.card{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:1.2rem;margin:1rem 0;box-shadow:0 2px 8px #0000000a}.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}input,select,button{font:inherit;padding:.55rem;border:1px solid #c8ced6;border-radius:7px}input[type=url],input[name=value]{flex:1;min-width:220px}button{cursor:pointer;background:#27364b;color:#fff}button.danger{background:#a12929}a{color:#155eef}.rule{background:#f6f8fa;padding:.55rem;margin:.4rem 0;border-radius:7px;display:flex;justify-content:space-between;align-items:center}.error{color:#a12929}
+  </style>
+</head>
+<body>
+  <h1>Feed Lens</h1><p class="muted">Originalfeed → Filter → dein RSS-Feed</p>
+  <section class="card"><h2>Feed hinzufügen</h2>
+    <form class="row" method="post" action="{{ url_for('create_feed_form') }}">
+      <input name="name" placeholder="Name" required maxlength="200">
+      <input type="url" name="source_url" placeholder="https://example.com/feed.xml" required>
+      <input type="number" name="refresh_interval" value="30" min="1" title="Minuten" style="width:6rem">
+      <button>Hinzufügen</button>
+    </form>
+  </section>
+  {% for feed in feeds %}
+  <section class="card">
+    <div class="row">{% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="32" height="32" style="object-fit:contain;border-radius:6px">{% endif %}<h2 style="margin-right:auto">{{ feed.source_title or feed.name }}</h2>
+      <form method="post" action="{{ url_for('refresh_form', feed_id=feed.id) }}"><button>Jetzt laden</button></form>
+      <form method="post" action="{{ url_for('delete_feed_form', feed_id=feed.id) }}" onsubmit="return confirm('Feed wirklich löschen?')"><button class="danger">Löschen</button></form>
+    </div>
+    <p><a href="{{ feed.source_url }}">Quelle</a> · <a href="{{ url_for('reader', feed_id=feed.id) }}">Feed lesen</a> · <a href="{{ url_for('rss', feed_id=feed.id) }}">RSS-Ausgabe</a> · {{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert · alle {{ feed.refresh_interval }} Min.</p>
+    {% if feed.last_error %}<p class="error">Letzter Fehler: {{ feed.last_error }}</p>{% endif %}
+    {% for rule in feed.rules %}<div class="rule"><span><strong>{{ rule.action }}</strong> · {{ rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="danger">×</button></form></div>{% endfor %}
+    <form class="row" method="post" action="{{ url_for('create_rule_form', feed_id=feed.id) }}">
+      <select name="action"><option value="exclude">ausschließen</option><option value="include">einschließen</option></select>
+      <select name="field"><option value="all">alles</option><option value="title">Titel</option><option value="content">Inhalt</option><option value="author">Autor</option><option value="category">Kategorie</option></select>
+      <select name="operator"><option value="contains">enthält</option><option value="regex">Regex</option><option value="equals">entspricht</option></select>
+      <input name="value" placeholder="Filterwert" required><button>Regel hinzufügen</button>
+    </form>
+  </section>
+  {% else %}<p class="muted">Noch keine Feeds vorhanden.</p>{% endfor %}
+</body></html>

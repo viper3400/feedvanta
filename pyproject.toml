@@ -1,0 +1,20 @@
+[project]
+name = "feed-lens"
+version = "0.1.0"
+description = "Small RSS/Atom filter server for feed readers"
+requires-python = ">=3.11"
+dependencies = [
+  "apscheduler>=3.10,<4",
+  "fastapi>=0.115,<1",
+  "feedparser>=6.0,<7",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.9,<1",
+  "python-dotenv>=1.0,<2",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.27,<1", "pytest>=8,<9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

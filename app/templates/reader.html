@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ feed.source_title or feed.name }} – Feed Lens</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#18202a;background:#f4f6f8}body{max-width:820px;margin:3rem auto;padding:0 1rem}header{margin-bottom:2rem}.nav{display:flex;gap:1rem;flex-wrap:wrap}a{color:#155eef}.entry{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:1.25rem;margin:1rem 0;box-shadow:0 2px 8px #0000000a}.entry h2{font-size:1.2rem;margin:.25rem 0}.meta{color:#667085;font-size:.9rem}.excerpt{line-height:1.55;color:#344054}.empty{padding:2rem;text-align:center;background:#fff;border-radius:12px;color:#667085}
+  </style>
+</head>
+<body>
+  <header>
+    <p><a href="{{ url_for('index') }}">← Verwaltung</a></p>
+    <div style="display:flex;align-items:center;gap:.8rem">{% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="48" height="48" style="object-fit:contain;border-radius:9px">{% endif %}<h1>{{ feed.source_title or feed.name }}</h1></div>
+    <div class="nav"><a href="{{ feed.source_url }}">Originalfeed</a><a href="{{ url_for('rss', feed_id=feed.id) }}">RSS-Ausgabe abonnieren</a></div>
+  </header>
+  <main>
+    {% for entry in entries %}
+    <article class="entry">
+      <p class="meta">{% if entry.published %}{{ entry.published[:10] }}{% else %}Abruf {{ entry.fetched_at[:10] }}{% endif %}{% if entry.author %} · {{ entry.author }}{% endif %}{% if entry.category %} · {{ entry.category }}{% endif %}</p>
+      <h2>{% if entry.url %}<a href="{{ entry.url }}">{{ entry.title or "Ohne Titel" }}</a>{% else %}{{ entry.title or "Ohne Titel" }}{% endif %}</h2>
+      {% if entry.content %}<p class="excerpt">{{ entry.content|striptags|truncate(420) }}</p>{% endif %}
+    </article>
+    {% else %}
+    <div class="empty">Noch keine sichtbaren Artikel. Lade den Feed in der Verwaltung zunächst mit „Jetzt laden“.</div>
+    {% endfor %}
+  </main>
+</body>
+</html>
