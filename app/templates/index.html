@@ -8,7 +8,7 @@
   </style>
 </head>
 <body>
-  <h1>FeedVanta</h1><p class="muted">Originalfeed → Filter → dein RSS-Feed</p>
+  <div class="row"><div style="margin-right:auto"><h1>FeedVanta</h1><p class="muted">Originalfeed → Filter → dein RSS-Feed</p></div>{% if current_user.picture_url %}<img src="{{ current_user.picture_url }}" alt="" width="36" height="36" style="border-radius:50%">{% endif %}<span>{{ current_user.name or current_user.email }}</span><form method="post" action="{{ url_for('logout') }}"><button>Abmelden</button></form></div>
   <section class="card"><h2>Feed hinzufügen</h2>
     <form class="row" method="post" action="{{ url_for('create_feed_form') }}">
       <input name="name" placeholder="Name" required maxlength="200">
@@ -34,4 +34,7 @@
     </form>
   </section>
   {% else %}<p class="muted">Noch keine Feeds vorhanden.</p>{% endfor %}
+  <section class="card"><h2>Benutzer und Berechtigungen</h2>
+    {% for user in users %}<div class="rule"><span>{% if user.picture_url %}<img src="{{ user.picture_url }}" alt="" width="24" height="24" style="border-radius:50%;vertical-align:middle;margin-right:.4rem">{% endif %}<strong>{{ user.name or user.email }}</strong> · {{ user.email }}</span><form method="post" action="{{ url_for('update_global_administration', user_id=user.id) }}"><label><input type="checkbox" name="enabled" value="true" {% if admin_permission in user.permissions %}checked{% endif %} onchange="this.form.submit()"> Global Administration</label></form></div>{% endfor %}
+  </section>
 </body></html>

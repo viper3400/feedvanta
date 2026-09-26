@@ -29,6 +29,44 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Die Verwaltung liegt dann unter `http://server:8000/feedvanta/`, ein Feed beispielsweise unter `http://server:8000/feedvanta/feed/1.xml`. Der konfigurierte Pfad muss vom Reverse Proxy unverändert an Uvicorn weitergereicht werden.
 
+## Anmelden mit Google einrichten
+
+Die Feedverwaltung und ihre API sind durch Google-Anmeldung und die Berechtigung `Global Administration` geschützt. Der **erste Benutzer**, der sich erfolgreich anmeldet, erhält diese Berechtigung automatisch. Benutzer und Berechtigungen werden in SQLite gespeichert und bleiben nach einem Neustart erhalten. Globale Administratoren können die Berechtigung in der Verwaltung weiteren angemeldeten Benutzern geben oder entziehen; die letzte globale Administration kann nicht entfernt werden.
+
+Die generierten RSS-Feeds unter `/feed/{id}.xml`, die Kontrollansicht unter `/reader/{id}` und `/health` bleiben bewusst ohne Anmeldung erreichbar.
+
+1. Öffne die [Google Auth Platform](https://console.cloud.google.com/auth/overview), wähle ein bestehendes Google-Cloud-Projekt oder erstelle eines und richte unter **Branding** den App-Namen, die Support-E-Mail und die Kontaktadresse ein.
+2. Wähle unter **Audience**, ob die Anwendung nur für deine Google-Workspace-Organisation (**Internal**) oder für Google-Konten außerhalb der Organisation (**External**) verfügbar sein soll. Im externen Testmodus musst du die erlaubten Konten als Testnutzer eintragen.
+3. Erstelle unter **Clients** einen neuen OAuth-Client vom Typ **Web application**.
+4. Hinterlege unter **Authorized redirect URIs** die vollständige Callback-Adresse. Sie muss einschließlich Schema, Host, Port und Unterpfad exakt übereinstimmen:
+
+   ```text
+   https://example.com/feedvanta/auth/google/callback
+   ```
+
+   Für eine lokale Einrichtung ohne Unterpfad ist beispielsweise Folgendes möglich:
+
+   ```text
+   http://localhost:8000/auth/google/callback
+   ```
+
+5. Kopiere Client-ID und Client-Secret in `.env` und erzeuge ein dauerhaftes Session-Secret:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-google-client-secret
+   FEEDVANTA_SESSION_SECRET=replace-with-the-output-of-openssl
+   FEEDVANTA_SECURE_COOKIES=true
+   ```
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+6. Starte FeedVanta neu. Unter `/feedvanta/` erscheint nun **Anmelden mit Google**.
+
+Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist für lokale Tests davon ausgenommen. Wenn ein Reverse Proxy HTTPS beendet, muss er Host und Protokoll korrekt über `Forwarded` oder `X-Forwarded-*` weitergeben, damit FeedVanta die registrierte HTTPS-Callback-Adresse erzeugt. Client-Secret, Session-Secret und die lokale `.env` dürfen nicht ins Repository gelangen. Die Redirect-URI-Regeln und der Webserver-Flow sind in Googles offizieller Dokumentation beschrieben: [OAuth 2.0 for Web Server Applications](https://developers.google.com/identity/protocols/oauth2/web-server) und [Manage OAuth Clients](https://support.google.com/cloud/answer/15549257).
+
 ## Filterlogik
 
 - Eine passende `exclude`-Regel blendet einen Artikel aus.

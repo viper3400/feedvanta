@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Anmelden – FeedVanta</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#18202a;background:#f4f6f8}body{min-height:100vh;margin:0;display:grid;place-items:center}.card{width:min(420px,calc(100% - 3rem));background:#fff;border:1px solid #dfe3e8;border-radius:14px;padding:2rem;text-align:center;box-shadow:0 8px 30px #00000012}.muted{color:#667085;line-height:1.5}.button{display:inline-block;margin-top:1rem;padding:.75rem 1.1rem;border:1px solid #c8ced6;border-radius:8px;color:#18202a;text-decoration:none;font-weight:600;background:#fff}.button:hover{background:#f7f8fa}.error{color:#a12929;background:#fff1f1;padding:.8rem;border-radius:8px}
+  </style>
+</head>
+<body><main class="card">
+  <h1>FeedVanta</h1><p class="muted">Melde dich an, um Feeds und Filter zu verwalten.</p>
+  {% if google_configured %}<a class="button" href="{{ url_for('auth_google') }}">Anmelden mit Google</a>
+  {% else %}<p class="error">Google-Anmeldung ist noch nicht konfiguriert.</p>{% endif %}
+</main></body></html>

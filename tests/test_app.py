@@ -1,9 +1,22 @@
+import json
+from base64 import b64encode
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from itsdangerous import TimestampSigner
 
+from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
 from app.services import feed_metadata, is_hidden, rule_matches
+
+TEST_SESSION_SECRET = "test-session-secret"
+
+
+def authenticate(client: TestClient, app, sub: str = "admin", email: str = "admin@example.com") -> dict:
+    user = app.state.auth_service.login_google_user({"sub": sub, "email": email, "name": "Test User"})
+    data = b64encode(json.dumps({"user_id": user["id"]}).encode("utf-8"))
+    client.cookies.set("session", TimestampSigner(TEST_SESSION_SECRET).sign(data).decode("utf-8"))
+    return user
 
 
 def test_filter_semantics():
@@ -25,8 +38,9 @@ def test_original_feed_metadata():
 
 
 def test_feed_rule_and_rss_api(tmp_path: Path):
-    app = create_app(str(tmp_path / "test.db"), start_scheduler=False)
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     with TestClient(app) as client:
+        authenticate(client, app)
         response = client.post("/api/feeds", json={
             "name": "Test", "source_url": "https://example.com/rss.xml", "refresh_interval": 15
         })
@@ -76,15 +90,17 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
 
 
 def test_delete_missing_returns_404(tmp_path: Path):
-    app = create_app(str(tmp_path / "test.db"), start_scheduler=False)
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     with TestClient(app) as client:
+        authenticate(client, app)
         assert client.delete("/api/feeds/123").status_code == 404
 
 
 def test_application_below_subpath(tmp_path: Path):
-    core = create_app(str(tmp_path / "test.db"), start_scheduler=False)
+    core = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     app = SubpathMiddleware(core, "/feedvanta/")
     with TestClient(app) as client:
+        authenticate(client, core)
         response = client.post("/feedvanta/api/feeds", json={
             "name": "Test", "source_url": "https://example.com/rss.xml"
         })
@@ -95,3 +111,59 @@ def test_application_below_subpath(tmp_path: Path):
         assert f'http://testserver/feedvanta/reader/{feed_id}' in page.text
         assert f'http://testserver/feedvanta/feed/{feed_id}.xml' in page.text
         assert client.get("/").status_code == 404
+
+
+def test_first_google_user_is_persistent_admin(tmp_path: Path):
+    db_path = str(tmp_path / "test.db")
+    app = create_app(db_path, start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    first = app.state.auth_service.login_google_user({
+        "sub": "google-1", "email": "first@example.com", "name": "First"
+    })
+    second = app.state.auth_service.login_google_user({
+        "sub": "google-2", "email": "second@example.com", "name": "Second"
+    })
+    assert GLOBAL_ADMINISTRATION in first["permissions"]
+    assert GLOBAL_ADMINISTRATION not in second["permissions"]
+
+    restarted = create_app(db_path, start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    assert GLOBAL_ADMINISTRATION in restarted.state.auth_service.get_user(first["id"])["permissions"]
+    restarted.state.auth_service.set_permission(second["id"], GLOBAL_ADMINISTRATION, True)
+    assert GLOBAL_ADMINISTRATION in restarted.state.auth_service.get_user(second["id"])["permissions"]
+
+
+def test_unverified_google_email_is_rejected(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    try:
+        app.state.auth_service.login_google_user({
+            "sub": "google-1", "email": "user@example.com", "email_verified": False,
+        })
+    except ValueError as exc:
+        assert "bestätigte E-Mail-Adresse" in str(exc)
+    else:
+        raise AssertionError("Unverified Google email was accepted")
+
+
+def test_configuration_requires_admin_but_feeds_are_public(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    with app.state.db.connect() as conn:
+        feed_id = conn.execute(
+            "INSERT INTO feeds(name,source_url,refresh_interval,created_at) VALUES(?,?,?,?)",
+            ("Public", "https://example.com/rss.xml", 30, "2026-09-26T00:00:00+00:00"),
+        ).lastrowid
+    with TestClient(app) as client:
+        assert client.get("/", follow_redirects=False).status_code == 303
+        login = client.get("/login")
+        assert login.status_code == 200
+        assert "Google-Anmeldung ist noch nicht konfiguriert" in login.text
+        assert client.get("/api/feeds").status_code == 401
+        assert client.get(f"/feed/{feed_id}.xml").status_code == 200
+        assert client.get(f"/reader/{feed_id}").status_code == 200
+
+
+def test_signed_in_user_without_permission_cannot_configure(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    app.state.auth_service.login_google_user({"sub": "first", "email": "first@example.com"})
+    with TestClient(app) as client:
+        authenticate(client, app, sub="second", email="second@example.com")
+        assert client.get("/").status_code == 403
+        assert client.get("/api/feeds").status_code == 403

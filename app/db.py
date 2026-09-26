@@ -40,6 +40,21 @@ CREATE TABLE IF NOT EXISTS entries (
   UNIQUE(feed_id, guid)
 );
 CREATE INDEX IF NOT EXISTS idx_entries_feed_visible ON entries(feed_id, hidden, published);
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  google_sub TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  picture_url TEXT,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL,
+  granted_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, permission)
+);
 """
 
 

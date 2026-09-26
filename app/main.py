@@ -1,4 +1,5 @@
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from email.utils import format_datetime
@@ -6,12 +7,15 @@ from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, Form, HTTPException, Request
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, HttpUrl
 from dotenv import load_dotenv
+from starlette.middleware.sessions import SessionMiddleware
 
+from .auth import AuthService, GLOBAL_ADMINISTRATION
 from .db import Database
 from .models import utcnow
 from .services import FeedService
@@ -67,10 +71,15 @@ class RuleCreate(BaseModel):
     action: str = Field(default="exclude", pattern="^(exclude|include)$")
 
 
-def create_app(db_path: str | None = None, start_scheduler: bool = True) -> FastAPI:
+def create_app(
+    db_path: str | None = None,
+    start_scheduler: bool = True,
+    session_secret: str | None = None,
+) -> FastAPI:
     database = Database(db_path or os.getenv("FEEDVANTA_DB", "data/feedvanta.db"))
     database.initialize()
     service = FeedService(database)
+    auth_service = AuthService(database)
     scheduler = BackgroundScheduler(daemon=True)
 
     @asynccontextmanager
@@ -83,9 +92,39 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
             scheduler.shutdown(wait=False)
 
     app = FastAPI(title="FeedVanta", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret or os.getenv("FEEDVANTA_SESSION_SECRET") or secrets.token_urlsafe(32),
+        same_site="lax",
+        https_only=os.getenv("FEEDVANTA_SECURE_COOKIES", "false").lower() in {"1", "true", "yes"},
+    )
     app.state.db = database
     app.state.service = service
+    app.state.auth_service = auth_service
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+    oauth = OAuth()
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+    google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    if google_client_id and google_client_secret:
+        oauth.register(
+            name="google",
+            client_id=google_client_id,
+            client_secret=google_client_secret,
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+
+    def current_user(request: Request) -> dict | None:
+        user_id = request.session.get("user_id")
+        return auth_service.get_user(int(user_id)) if user_id else None
+
+    def require_admin(request: Request) -> dict:
+        user = current_user(request)
+        if not user:
+            raise HTTPException(401, "Anmeldung erforderlich")
+        if GLOBAL_ADMINISTRATION not in user["permissions"]:
+            raise HTTPException(403, "Global Administration erforderlich")
+        return user
 
     def feeds_with_rules():
         with database.connect() as conn:
@@ -104,14 +143,56 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
-        return templates.TemplateResponse(request, "index.html", {"feeds": feeds_with_rules()})
+        user = current_user(request)
+        if not user:
+            return RedirectResponse(request.url_for("login"), status_code=303)
+        if GLOBAL_ADMINISTRATION not in user["permissions"]:
+            raise HTTPException(403, "Global Administration erforderlich")
+        return templates.TemplateResponse(request, "index.html", {
+            "feeds": feeds_with_rules(), "current_user": user,
+            "users": auth_service.list_users(), "admin_permission": GLOBAL_ADMINISTRATION,
+        })
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login(request: Request):
+        return templates.TemplateResponse(request, "login.html", {
+            "google_configured": bool(google_client_id and google_client_secret),
+        })
+
+    @app.get("/auth/google")
+    async def auth_google(request: Request):
+        if not google_client_id or not google_client_secret:
+            raise HTTPException(503, "Google-Anmeldung ist noch nicht konfiguriert")
+        redirect_uri = request.url_for("auth_callback")
+        return await oauth.google.authorize_redirect(request, redirect_uri)
+
+    @app.get("/auth/google/callback")
+    async def auth_callback(request: Request):
+        if not google_client_id or not google_client_secret:
+            raise HTTPException(503, "Google-Anmeldung ist noch nicht konfiguriert")
+        try:
+            token = await oauth.google.authorize_access_token(request)
+            profile = token.get("userinfo")
+            if not profile:
+                profile = await oauth.google.userinfo(token=token)
+            user = auth_service.login_google_user(dict(profile))
+        except (OAuthError, ValueError) as exc:
+            raise HTTPException(400, f"Google-Anmeldung fehlgeschlagen: {exc}") from exc
+        request.session.clear()
+        request.session["user_id"] = user["id"]
+        return RedirectResponse(request.url_for("index"), status_code=303)
+
+    @app.post("/logout")
+    def logout(request: Request):
+        request.session.clear()
+        return RedirectResponse(request.url_for("login"), status_code=303)
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
     @app.get("/api/feeds")
-    def list_feeds():
+    def list_feeds(_user: dict = Depends(require_admin)):
         return feeds_with_rules()
 
     @app.get("/reader/{feed_id}", response_class=HTMLResponse)
@@ -142,23 +223,23 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
             raise
 
     @app.post("/api/feeds", status_code=201)
-    def create_feed(payload: FeedCreate):
+    def create_feed(payload: FeedCreate, _user: dict = Depends(require_admin)):
         return {"id": insert_feed(payload)}
 
     @app.post("/feeds")
-    def create_feed_form(request: Request, name: str = Form(...), source_url: str = Form(...), refresh_interval: int = Form(30)):
+    def create_feed_form(request: Request, name: str = Form(...), source_url: str = Form(...), refresh_interval: int = Form(30), _user: dict = Depends(require_admin)):
         insert_feed(FeedCreate(name=name, source_url=source_url, refresh_interval=refresh_interval))
         return RedirectResponse(request.url_for("index"), status_code=303)
 
     @app.delete("/api/feeds/{feed_id}", status_code=204)
-    def delete_feed(feed_id: int):
+    def delete_feed(feed_id: int, _user: dict = Depends(require_admin)):
         with database.connect() as conn:
             if not conn.execute("DELETE FROM feeds WHERE id=?", (feed_id,)).rowcount:
                 raise HTTPException(404, "Feed nicht gefunden")
 
     @app.post("/feeds/{feed_id}/delete")
-    def delete_feed_form(request: Request, feed_id: int):
-        delete_feed(feed_id)
+    def delete_feed_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
+        delete_feed(feed_id, _user)
         return RedirectResponse(request.url_for("index"), status_code=303)
 
     def insert_rule(feed_id: int, payload: RuleCreate) -> int:
@@ -173,17 +254,17 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
         return cur.lastrowid
 
     @app.post("/api/feeds/{feed_id}/rules", status_code=201)
-    def create_rule(feed_id: int, payload: RuleCreate):
+    def create_rule(feed_id: int, payload: RuleCreate, _user: dict = Depends(require_admin)):
         return {"id": insert_rule(feed_id, payload)}
 
     @app.post("/feeds/{feed_id}/rules")
     def create_rule_form(request: Request, feed_id: int, field: str = Form(...), operator: str = Form(...),
-                         value: str = Form(...), action: str = Form(...)):
+                         value: str = Form(...), action: str = Form(...), _user: dict = Depends(require_admin)):
         insert_rule(feed_id, RuleCreate(field=field, operator=operator, value=value, action=action))
         return RedirectResponse(request.url_for("index"), status_code=303)
 
     @app.delete("/api/rules/{rule_id}", status_code=204)
-    def delete_rule(rule_id: int):
+    def delete_rule(rule_id: int, _user: dict = Depends(require_admin)):
         with database.connect() as conn:
             row = conn.execute("SELECT feed_id FROM filter_rules WHERE id=?", (rule_id,)).fetchone()
             if not row:
@@ -192,12 +273,12 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
         service.reapply_rules(row["feed_id"])
 
     @app.post("/rules/{rule_id}/delete")
-    def delete_rule_form(request: Request, rule_id: int):
-        delete_rule(rule_id)
+    def delete_rule_form(request: Request, rule_id: int, _user: dict = Depends(require_admin)):
+        delete_rule(rule_id, _user)
         return RedirectResponse(request.url_for("index"), status_code=303)
 
     @app.post("/api/feeds/{feed_id}/refresh")
-    def refresh(feed_id: int):
+    def refresh(feed_id: int, _user: dict = Depends(require_admin)):
         try:
             return {"fetched": service.refresh(feed_id)}
         except LookupError as exc:
@@ -206,8 +287,21 @@ def create_app(db_path: str | None = None, start_scheduler: bool = True) -> Fast
             raise HTTPException(502, f"Feed konnte nicht geladen werden: {exc}") from exc
 
     @app.post("/feeds/{feed_id}/refresh")
-    def refresh_form(request: Request, feed_id: int):
-        refresh(feed_id)
+    def refresh_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
+        refresh(feed_id, _user)
+        return RedirectResponse(request.url_for("index"), status_code=303)
+
+    @app.post("/admin/users/{user_id}/global-administration")
+    def update_global_administration(
+        request: Request, user_id: int, enabled: bool = Form(False),
+        _user: dict = Depends(require_admin),
+    ):
+        try:
+            auth_service.set_permission(user_id, GLOBAL_ADMINISTRATION, enabled)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
         return RedirectResponse(request.url_for("index"), status_code=303)
 
     @app.get("/feed/{feed_id}.xml")
