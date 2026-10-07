@@ -54,7 +54,7 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
             conn.execute(
                 "INSERT INTO entries(feed_id,guid,title,url,content,author,category,published,fetched_at,hidden) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (feed_id, "visible", "Sichtbarer Artikel", "https://example.com/visible",
+                (feed_id, "visible", "Sichtbarer Artikel", "https://example.com/visible.mp4",
                  "<p>Eine kurze Meldung</p>", "Ada", "Tech", "2026-09-25T10:00:00+00:00",
                  "2026-09-25T10:01:00+00:00", 0),
             )
@@ -85,6 +85,7 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert b"<title>Original Feed</title>" in rss.content
         assert b"<url>https://example.com/icon.png</url>" in rss.content
         assert b"atom:link" in rss.content
+        assert b'<enclosure url="https://example.com/visible.mp4" length="0" type="video/mp4"' in rss.content
         reader = client.get(f"/reader/{feed_id}")
         assert reader.status_code == 200
         assert "Sichtbarer Artikel" in reader.text

@@ -35,6 +35,7 @@ htmlcov/
 .env.*
 !.env.example
 data/
+downloads/
 *.db
 *.sqlite
 *.sqlite3

@@ -11,5 +11,6 @@ dist
 *.egg-info
 .env
 data
+downloads
 tests
 .DS_Store

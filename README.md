@@ -136,6 +136,31 @@ Das Exportformat enthält ausschließlich Feeds und Filterregeln:
 
 Benutzer, Berechtigungen, OAuth-Daten, Sitzungen, heruntergeladene Artikel sowie abgeleitete Feed-Metadaten werden niemals mitexportiert.
 
+## Video-Downloads
+
+Das eigenständige Skript `tools/feed_downloader.py` lädt alle Mediendateien aus einem bereits durch FeedVanta gefilterten RSS-/Atom-Feed. Es verwendet ausschließlich die Python-Standardbibliothek und benötigt weder Zugriff auf die FeedVanta-Datenbank noch eine Installation des Webservers.
+
+Beispiel für Feed 4:
+
+```bash
+python tools/feed_downloader.py \
+  http://127.0.0.1:8000/feedvanta/feed/4.xml \
+  --output ./downloads \
+  --workers 4
+```
+
+Der erste Parameter kann eine HTTP(S)-Feed-URL, eine lokale XML-Datei oder `-` für Standardeingabe sein. `--output` verwendet standardmäßig `./downloads`, `--workers` standardmäßig drei parallele Downloads. RSS-/Atom-Enclosures werden bevorzugt; für ältere FeedVanta-Ausgaben dienen direkte Links auf `.mp4`, `.m4v`, `.webm`, `.mkv` und `.mov` als Fallback.
+
+Das Skript verarbeitet den Feed-Snapshot vollständig und beendet sich anschließend. Vorhandene Dateien werden bei jedem Lauf atomar ersetzt. Jeder fehlgeschlagene Download wird dreimal versucht; andere Downloads laufen parallel weiter. Ein neuer Feedstand erfordert einen erneuten Aufruf, beispielsweise über Cron oder systemd.
+
+Exit-Codes:
+
+- `0`: alle gefundenen Medien erfolgreich heruntergeladen
+- `1`: mindestens ein Download ist nach drei Versuchen fehlgeschlagen
+- `2`: Feed, Argumente oder Zielverzeichnis konnten nicht verarbeitet werden
+
+HLS-/DASH-Streams, Videoplattform-Seiten, DRM und `yt-dlp` werden nicht unterstützt. Das Docker-Image enthält bewusst nur den FeedVanta-Webserver; das unabhängige Skript wird am gewünschten Download-Ziel ausgeführt.
+
 ## Filterlogik
 
 - Eine passende `exclude`-Regel blendet einen Artikel aus.

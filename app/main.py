@@ -1,9 +1,11 @@
 import os
 import secrets
+from mimetypes import guess_type
 from contextlib import asynccontextmanager
 from datetime import datetime
 from email.utils import format_datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -24,6 +26,14 @@ from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 
 BASE_DIR = Path(__file__).parent
 load_dotenv()
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".webm", ".mkv", ".mov"}
+
+
+def video_media_type(url: str) -> str | None:
+    extension = Path(urlparse(url).path).suffix.lower()
+    if extension not in VIDEO_EXTENSIONS:
+        return None
+    return guess_type(urlparse(url).path)[0] or "application/octet-stream"
 
 
 def normalize_base_path(value: str) -> str:
@@ -400,6 +410,10 @@ def create_app(
             item = SubElement(channel, "item")
             SubElement(item, "title").text = entry["title"]
             SubElement(item, "link").text = entry["url"]
+            if media_type := video_media_type(entry["url"]):
+                SubElement(item, "enclosure", {
+                    "url": entry["url"], "length": "0", "type": media_type,
+                })
             SubElement(item, "guid", isPermaLink="false").text = entry["guid"]
             SubElement(item, "description").text = entry["content"]
             if entry["author"]:
