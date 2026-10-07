@@ -1,8 +1,11 @@
+import os
+import re
 from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.metadata import entry_points
 from typing import Iterable
 
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.responses import HTMLResponse
 from .plugins import ENTRY_POINT_GROUP, Plugin
 
@@ -33,6 +36,14 @@ def create_app(plugins: Iterable[Plugin] | None = None) -> FastAPI:
 
     apps = [(plugin, plugin.app_factory()) for plugin in loaded_plugins]
 
+    configured_prefix = os.getenv("TOOL_HOST_BASE_PATH", "").strip().rstrip("/")
+    if configured_prefix and (
+        not re.fullmatch(r"/(?:[A-Za-z0-9._~-]+/)*[A-Za-z0-9._~-]*", configured_prefix)
+        or ".." in configured_prefix.split("/")
+        or "//" in configured_prefix
+    ):
+        raise ValueError("TOOL_HOST_BASE_PATH must be a URL path prefix, e.g. '/suburl'")
+
     @asynccontextmanager
     async def lifespan(host: FastAPI):
         async with AsyncExitStack() as stack:
@@ -42,14 +53,28 @@ def create_app(plugins: Iterable[Plugin] | None = None) -> FastAPI:
             yield
 
     host = FastAPI(title="Tool Host", lifespan=lifespan)
-    host.get("/", response_class=HTMLResponse, name="home")(
-        lambda: "<!doctype html><title>Tools</title><h1>Tools</h1><ul>"
-        + "".join(
-            f'<li><a href="{plugin.path}/">{plugin.name}</a> — {plugin.description}</li>'
+
+    @host.middleware("http")
+    async def forwarded_prefix(request: Request, call_next):
+        prefix = request.headers.get("x-forwarded-prefix", "").strip() or configured_prefix
+        if prefix and re.fullmatch(r"/(?:[A-Za-z0-9._~-]+/)*[A-Za-z0-9._~-]*", prefix):
+            segments = prefix.split("/")
+            if ".." not in segments and "//" not in prefix:
+                prefix = prefix.rstrip("/")
+                request.scope["root_path"] = prefix
+                path = request.scope["path"]
+                if path != prefix and not path.startswith(prefix + "/"):
+                    request.scope["path"] = prefix + path
+                    request.scope["raw_path"] = prefix.encode() + request.scope.get("raw_path", path.encode())
+        return await call_next(request)
+
+    @host.get("/", response_class=HTMLResponse, name="home")
+    def home(request: Request):
+        return "<!doctype html><title>Tools</title><h1>Tools</h1><ul>" + "".join(
+            f'<li><a href="{request.scope.get("root_path", "")}{plugin.path}/">'
+            f'{plugin.name}</a> — {plugin.description}</li>'
             for plugin in loaded_plugins
-        )
-        + "</ul>"
-    )
+        ) + "</ul>"
     host.get("/health", name="health")(
         lambda: {"status": "ok", "plugins": [plugin.id for plugin in loaded_plugins]}
     )

@@ -50,13 +50,19 @@ Die Anwendung lädt beim Start automatisch eine `.env`-Datei. Kopiere die Vorlag
 cp .env.example .env
 ```
 
-FeedVanta ist ein Plugin des ASGI-Hosts und wird intern unter `/feedvanta/` eingebunden. Für einen externen Unterpfad wie `/tools` sollte der Reverse Proxy den Host entsprechend weiterleiten und den Präfix korrekt als ASGI `root_path` übergeben. Der Host-Präfix wird nicht in Plugin-Routen fest codiert.
+FeedVanta ist ein Plugin des ASGI-Hosts und wird intern unter `/feedvanta/` eingebunden. Der Host unterstützt einen gemeinsamen externen Unterpfad über `X-Forwarded-Prefix`; der Proxy muss den Präfix aus der weitergeleiteten URL entfernen und im Header setzen. Alternativ kann `TOOL_HOST_BASE_PATH` in der `.env` gesetzt werden (zum Beispiel `TOOL_HOST_BASE_PATH=/suburl`). Ein vom Proxy gesendeter `X-Forwarded-Prefix` hat Vorrang. So können mehrere Plugins unter demselben externen Präfix ihre jeweiligen Routen behalten:
 
 ```bash
-feedvanta-host --host 0.0.0.0 --port 8000
+location /suburl/ {
+    proxy_pass http://192.168.1.3:8000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /suburl;
+}
 ```
 
-Die Verwaltung liegt unter `http://server:8000/feedvanta/`, ein Feed beispielsweise unter `http://server:8000/feedvanta/feed/1.xml`.
+Damit ist FeedVanta extern unter `https://example.com/suburl/feedvanta/` erreichbar; andere Plugins bleiben unter ihren jeweiligen Routen, etwa `/suburl/pydo/`. Setze diesen Header nur hinter einem vertrauenswürdigen Reverse Proxy. Ohne externen Präfix sind die direkten Host-Routen `/feedvanta/` und `/`.
 
 ## Anmelden mit Google einrichten
 

@@ -145,6 +145,39 @@ def test_host_discovers_and_mounts_feedvanta(tmp_path: Path):
         assert 'href="http://testserver/feedvanta/admin/config"' in overview.text
 
 
+def test_host_honors_nginx_forwarded_prefix(tmp_path: Path):
+    plugin = replace(
+        PLUGIN,
+        app_factory=lambda: create_app(
+            str(tmp_path / "prefixed-host.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
+        ),
+    )
+    host = create_host([plugin])
+    with TestClient(host) as client:
+        headers = {"X-Forwarded-Prefix": "/suburl"}
+        home = client.get("/", headers=headers)
+        assert 'href="/suburl/feedvanta/"' in home.text
+        landing = client.get("/feedvanta/", headers=headers, follow_redirects=False)
+        assert landing.status_code == 303
+        assert landing.headers["location"].endswith("/suburl/feedvanta/login")
+        assert client.get("/feedvanta/login", headers=headers).status_code == 200
+
+
+def test_host_base_path_environment_variable(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("TOOL_HOST_BASE_PATH", "/private-tools")
+    plugin = replace(
+        PLUGIN,
+        app_factory=lambda: create_app(
+            str(tmp_path / "configured-prefix.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
+        ),
+    )
+    with TestClient(create_host([plugin])) as client:
+        home = client.get("/")
+        assert 'href="/private-tools/feedvanta/"' in home.text
+        landing = client.get("/feedvanta/", follow_redirects=False)
+        assert landing.headers["location"].endswith("/private-tools/feedvanta/login")
+
+
 def test_host_rejects_duplicate_plugin_paths():
     from tool_host.app import create_app as create_host
 
