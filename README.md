@@ -8,10 +8,10 @@ FeedVanta lädt RSS-/Atom-Feeds regelmäßig, speichert Artikel lokal, filtert s
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[test]'
-uvicorn app.main:app --reload
+feedvanta-host --reload
 ```
 
-Danach die Verwaltung unter <http://127.0.0.1:8000> öffnen. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
+Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unter <http://127.0.0.1:8000/feedvanta/> erreichbar. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
 
 ### Docker Compose
 
@@ -30,7 +30,7 @@ Für ein aus der GitHub Container Registry geladenes Image setzt du vor dem Star
 FEEDVANTA_IMAGE=ghcr.io/OWNER/REPOSITORY:1.2.3 docker compose up -d
 ```
 
-Mit `FEEDVANTA_PORT` kann der veröffentlichte Host-Port geändert werden. Das Image läuft als unprivilegierter Benutzer und enthält einen Healthcheck für `/health` einschließlich eines konfigurierten Unterpfads.
+Mit `FEEDVANTA_PORT` kann der veröffentlichte Host-Port geändert werden. Das Image läuft als unprivilegierter Benutzer und prüft den Host-Endpunkt `/health`.
 
 ### Container-Releases
 
@@ -42,7 +42,7 @@ ghcr.io/OWNER/REPOSITORY:TAG
 
 Semantische Tags wie `v1.2.3` erzeugen zusätzlich die passenden Versions-Aliase. Der Workflow authentifiziert sich mit dem eingebauten `GITHUB_TOKEN`; es ist kein separates Registry-Secret erforderlich. Neue GitHub-Packages sind standardmäßig möglicherweise privat und können in den Package-Einstellungen öffentlich geschaltet werden.
 
-### Betrieb unter einem Unterpfad
+### Betrieb hinter einem Reverse Proxy
 
 Die Anwendung lädt beim Start automatisch eine `.env`-Datei. Kopiere die Vorlage und passe sie bei Bedarf an:
 
@@ -50,19 +50,19 @@ Die Anwendung lädt beim Start automatisch eine `.env`-Datei. Kopiere die Vorlag
 cp .env.example .env
 ```
 
-Mit `FEEDVANTA_BASE_PATH` kann die gesamte Anwendung unter einem Unterpfad veröffentlicht werden. Anschließend reicht der normale Startbefehl:
+FeedVanta ist ein Plugin des ASGI-Hosts und wird intern unter `/feedvanta/` eingebunden. Für einen externen Unterpfad wie `/tools` sollte der Reverse Proxy den Host entsprechend weiterleiten und den Präfix korrekt als ASGI `root_path` übergeben. Der Host-Präfix wird nicht in Plugin-Routen fest codiert.
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+feedvanta-host --host 0.0.0.0 --port 8000
 ```
 
-Die Verwaltung liegt dann unter `http://server:8000/feedvanta/`, ein Feed beispielsweise unter `http://server:8000/feedvanta/feed/1.xml`. Der konfigurierte Pfad muss vom Reverse Proxy unverändert an Uvicorn weitergereicht werden.
+Die Verwaltung liegt unter `http://server:8000/feedvanta/`, ein Feed beispielsweise unter `http://server:8000/feedvanta/feed/1.xml`.
 
 ## Anmelden mit Google einrichten
 
 Die Feedverwaltung und ihre API sind durch Google-Anmeldung und die Berechtigung `Global Administration` geschützt. Der **erste Benutzer**, der sich erfolgreich anmeldet, erhält diese Berechtigung automatisch. Benutzer und Berechtigungen werden in SQLite gespeichert und bleiben nach einem Neustart erhalten. Globale Administratoren können die Berechtigung in der Verwaltung weiteren angemeldeten Benutzern geben oder entziehen; die letzte globale Administration kann nicht entfernt werden.
 
-Die generierten RSS-Feeds unter `/feed/{id}.xml`, die Kontrollansicht unter `/reader/{id}` und `/health` bleiben bewusst ohne Anmeldung erreichbar.
+Die generierten RSS-Feeds unter `/feedvanta/feed/{id}.xml`, die Kontrollansicht unter `/feedvanta/reader/{id}` sowie der Host-Healthcheck `/health` bleiben bewusst ohne Anmeldung erreichbar.
 
 1. Öffne die [Google Auth Platform](https://console.cloud.google.com/auth/overview), wähle ein bestehendes Google-Cloud-Projekt oder erstelle eines und richte unter **Branding** den App-Namen, die Support-E-Mail und die Kontaktadresse ein.
 2. Wähle unter **Audience**, ob die Anwendung nur für deine Google-Workspace-Organisation (**Internal**) oder für Google-Konten außerhalb der Organisation (**External**) verfügbar sein soll. Im externen Testmodus musst du die erlaubten Konten als Testnutzer eintragen.
@@ -144,7 +144,7 @@ Beispiel für Feed 4:
 
 ```bash
 python tools/feed_downloader.py \
-  http://127.0.0.1:8000/feedvanta/feed/4.xml \
+    http://127.0.0.1:8000/feedvanta/feed/4.xml \
   --output ./downloads \
   --workers 4
 ```
@@ -173,21 +173,21 @@ Feeds werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft. Zu
 
 ## API und RSS
 
-- `GET /api/feeds` – Feeds samt Regeln auflisten
-- `POST /api/feeds` – Feed als JSON anlegen
-- `POST /api/feeds/{id}/rules` – Regel als JSON anlegen
-- `POST /api/feeds/{id}/refresh` – Feed sofort abrufen
-- `DELETE /api/feeds/{id}` – Feed löschen
-- `DELETE /api/rules/{id}` – Regel löschen
-- `GET /api/config/export` – versionierte Feedkonfiguration exportieren
-- `POST /api/config/import` – versionierte Feedkonfiguration ersetzen
-- `GET /feed/{id}.xml` – gefilterter RSS-Feed
-- `GET /health` – Healthcheck
+- `GET /feedvanta/api/feeds` – Feeds samt Regeln auflisten
+- `POST /feedvanta/api/feeds` – Feed als JSON anlegen
+- `POST /feedvanta/api/feeds/{id}/rules` – Regel als JSON anlegen
+- `POST /feedvanta/api/feeds/{id}/refresh` – Feed sofort abrufen
+- `DELETE /feedvanta/api/feeds/{id}` – Feed löschen
+- `DELETE /feedvanta/api/rules/{id}` – Regel löschen
+- `GET /feedvanta/api/config/export` – versionierte Feedkonfiguration exportieren
+- `POST /feedvanta/api/config/import` – versionierte Feedkonfiguration ersetzen
+- `GET /feedvanta/feed/{id}.xml` – gefilterter RSS-Feed
+- `GET /health` – Host-Healthcheck
 
 Beispiel:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/feeds \
+curl -X POST http://127.0.0.1:8000/feedvanta/api/feeds \
   -H 'content-type: application/json' \
   -d '{"name":"Heise", "source_url":"https://www.heise.de/rss/heise-atom.xml"}'
 ```

@@ -7,7 +7,10 @@ from itsdangerous import TimestampSigner
 
 from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
+from app.plugin import PLUGIN
 from app.services import feed_metadata, is_hidden, rule_matches
+from dataclasses import replace
+from tool_host.app import create_app as create_host
 
 TEST_SESSION_SECRET = "test-session-secret"
 
@@ -117,6 +120,41 @@ def test_application_below_subpath(tmp_path: Path):
         assert f'http://testserver/feedvanta/reader/{feed_id}' in page.text
         assert f'http://testserver/feedvanta/feed/{feed_id}.xml' in page.text
         assert client.get("/").status_code == 404
+
+
+def test_host_discovers_and_mounts_feedvanta(tmp_path: Path):
+    plugin = replace(
+        PLUGIN,
+        app_factory=lambda: create_app(
+            str(tmp_path / "host.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
+        ),
+    )
+    host = create_host([plugin])
+    with TestClient(host) as client:
+        assert client.get("/health").json() == {"status": "ok", "plugins": ["feedvanta"]}
+        assert '/feedvanta/' in client.get("/").text
+        landing = client.get("/feedvanta/", follow_redirects=False)
+        assert landing.status_code == 303
+        assert landing.headers["location"].endswith("/feedvanta/login")
+        assert client.get("/feedvanta/login").status_code == 200
+        assert client.get("/feedvanta/health").json() == {"status": "ok"}
+        mounted_app = host.routes[-1].app
+        authenticate(client, mounted_app)
+        overview = client.get("/feedvanta/")
+        assert overview.status_code == 200
+        assert 'href="http://testserver/feedvanta/admin/config"' in overview.text
+
+
+def test_host_rejects_duplicate_plugin_paths():
+    from tool_host.app import create_app as create_host
+
+    duplicate = replace(PLUGIN, id="second")
+    try:
+        create_host([PLUGIN, duplicate])
+    except ValueError as exc:
+        assert "Duplicate plugin mount path" in str(exc)
+    else:
+        raise AssertionError("Duplicate plugin mount path was accepted")
 
 
 def test_first_google_user_is_persistent_admin(tmp_path: Path):

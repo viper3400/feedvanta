@@ -13,6 +13,7 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from pydantic import BaseModel, Field, HttpUrl
 from dotenv import load_dotenv
 from starlette.middleware.sessions import SessionMiddleware
@@ -95,14 +96,22 @@ def create_app(
     configuration_service = ConfigurationService(database)
     scheduler = BackgroundScheduler(daemon=True)
 
+    def start_refresh_scheduler() -> None:
+        if not scheduler.running:
+            scheduler.add_job(service.refresh_due, "interval", minutes=1, max_instances=1)
+            scheduler.start()
+
+    def stop_refresh_scheduler() -> None:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if start_scheduler:
-            scheduler.add_job(service.refresh_due, "interval", minutes=1, max_instances=1)
-            scheduler.start()
+            start_refresh_scheduler()
         yield
-        if scheduler.running:
-            scheduler.shutdown(wait=False)
+        if start_scheduler:
+            stop_refresh_scheduler()
 
     app = FastAPI(title="FeedVanta", version=APP_VERSION, lifespan=lifespan)
     app.add_middleware(
@@ -115,7 +124,22 @@ def create_app(
     app.state.service = service
     app.state.auth_service = auth_service
     app.state.configuration_service = configuration_service
+    app.state.scheduler = scheduler
+    app.state.start_refresh_scheduler = start_refresh_scheduler
+    app.state.stop_refresh_scheduler = stop_refresh_scheduler
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+    def route_url(request: Request, endpoint: str, **params) -> str:
+        try:
+            return str(request.url_for(f"feedvanta:{endpoint}", **params))
+        except Exception:
+            return str(request.url_for(endpoint, **params))
+
+    @pass_context
+    def template_url_for(context, endpoint: str, **params) -> str:
+        return route_url(context["request"], endpoint, **params)
+
+    templates.env.globals["url_for"] = template_url_for
     oauth = OAuth()
     google_client_id = os.getenv("GOOGLE_CLIENT_ID")
     google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -159,7 +183,7 @@ def create_app(
     def index(request: Request):
         user = current_user(request)
         if not user:
-            return RedirectResponse(request.url_for("login"), status_code=303)
+            return RedirectResponse(route_url(request, "login"), status_code=303)
         if GLOBAL_ADMINISTRATION not in user["permissions"]:
             raise HTTPException(403, "Global Administration erforderlich")
         return templates.TemplateResponse(request, "index.html", {
@@ -222,7 +246,7 @@ def create_app(
             raise
         except ValueError as exc:
             raise HTTPException(409, f"Konfiguration konnte nicht importiert werden: {exc}") from exc
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
 
     @app.get("/login", response_class=HTMLResponse)
     def login(request: Request):
@@ -234,7 +258,7 @@ def create_app(
     async def auth_google(request: Request):
         if not google_client_id or not google_client_secret:
             raise HTTPException(503, "Google-Anmeldung ist noch nicht konfiguriert")
-        redirect_uri = request.url_for("auth_callback")
+        redirect_uri = route_url(request, "auth_callback")
         return await oauth.google.authorize_redirect(request, redirect_uri)
 
     @app.get("/auth/google/callback")
@@ -251,12 +275,12 @@ def create_app(
             raise HTTPException(400, f"Google-Anmeldung fehlgeschlagen: {exc}") from exc
         request.session.clear()
         request.session["user_id"] = user["id"]
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
 
     @app.post("/logout")
     def logout(request: Request):
         request.session.clear()
-        return RedirectResponse(request.url_for("login"), status_code=303)
+        return RedirectResponse(route_url(request, "login"), status_code=303)
 
     @app.get("/health")
     def health():
@@ -301,7 +325,7 @@ def create_app(
     @app.post("/feeds")
     def create_feed_form(request: Request, name: str = Form(...), source_url: str = Form(...), refresh_interval: int = Form(30), _user: dict = Depends(require_admin)):
         insert_feed(FeedCreate(name=name, source_url=source_url, refresh_interval=refresh_interval))
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
 
     @app.delete("/api/feeds/{feed_id}", status_code=204)
     def delete_feed(feed_id: int, _user: dict = Depends(require_admin)):
@@ -313,7 +337,7 @@ def create_app(
     @app.post("/feeds/{feed_id}/delete")
     def delete_feed_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
         delete_feed(feed_id, _user)
-        return RedirectResponse(request.url_for("index"), status_code=303)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
 
     def insert_rule(feed_id: int, payload: RuleCreate) -> int:
         with database.connect() as conn:
@@ -335,7 +359,7 @@ def create_app(
     def create_rule_form(request: Request, feed_id: int, field: str = Form(...), operator: str = Form(...),
                          value: str = Form(...), action: str = Form(...), _user: dict = Depends(require_admin)):
         insert_rule(feed_id, RuleCreate(field=field, operator=operator, value=value, action=action))
-        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
     def remove_rule(rule_id: int) -> int:
         with database.connect() as conn:
@@ -354,7 +378,7 @@ def create_app(
     @app.post("/rules/{rule_id}/delete")
     def delete_rule_form(request: Request, rule_id: int, _user: dict = Depends(require_admin)):
         feed_id = remove_rule(rule_id)
-        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
     @app.post("/api/feeds/{feed_id}/refresh")
     def refresh(feed_id: int, _user: dict = Depends(require_admin)):
@@ -368,7 +392,7 @@ def create_app(
     @app.post("/feeds/{feed_id}/refresh")
     def refresh_form(request: Request, feed_id: int, _user: dict = Depends(require_admin)):
         refresh(feed_id, _user)
-        return RedirectResponse(request.url_for("feed_detail", feed_id=feed_id), status_code=303)
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
     @app.post("/admin/users/{user_id}/global-administration")
     def update_global_administration(
@@ -381,7 +405,7 @@ def create_app(
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
-        return RedirectResponse(request.url_for("users_admin"), status_code=303)
+        return RedirectResponse(route_url(request, "users_admin"), status_code=303)
 
     @app.get("/feed/{feed_id}.xml")
     def rss(feed_id: int, request: Request):
@@ -428,8 +452,3 @@ def create_app(
         return Response(xml, media_type="application/rss+xml; charset=utf-8")
 
     return app
-
-
-_core_app = create_app()
-_base_path = normalize_base_path(os.getenv("FEEDVANTA_BASE_PATH", ""))
-app = SubpathMiddleware(_core_app, _base_path) if _base_path else _core_app
