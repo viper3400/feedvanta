@@ -5,10 +5,8 @@ FeedVanta lädt RSS-/Atom-Feeds regelmäßig, speichert Artikel lokal, filtert s
 ## Start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[test]'
-feedvanta-host --reload
+uv sync --extra test
+uv run feedvanta-host --reload
 ```
 
 Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unter <http://127.0.0.1:8000/feedvanta/> erreichbar. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.

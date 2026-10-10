@@ -6,6 +6,8 @@
   stores entries in SQLite, applies filters, and publishes generated RSS feeds.
 - Follow the existing project structure and style. Keep changes focused and
   avoid adding dependencies unless they are necessary.
+- Use `uv` for environment and dependency management. When dependencies change,
+  update and commit `uv.lock` with `uv lock`; do not edit the lockfile by hand.
 - Preserve public generated-feed behavior and handle feed publication timestamps
   consistently. Generated feeds include only visible entries published within
   the last 24 hours; entries without a publication timestamp are not included.
@@ -14,7 +16,7 @@
 
 ## Tests
 
-- Run the test suite with `python3 -m pytest` when possible.
+- Run the test suite with `uv run pytest` when possible.
 - Add or update tests for behavior changes, including relevant boundary cases.
 - If tests cannot be run, state why rather than implying they passed.
 
