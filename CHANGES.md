@@ -1,5 +1,13 @@
 # Changes
 
+## 0.4.0
+
+### Changed
+
+- FeedVanta releases now publish Python distributions on GitHub Releases for
+  installation by PyHost deployments; the standalone container release was
+  removed.
+
 ## 0.3.0
 
 ### Changed
