@@ -16,36 +16,18 @@ Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unte
 
 ### Frontend-Styles
 
-Die HTML-Oberfläche verwendet Tailwind CSS. Node.js/npm werden nur für den CSS-Build benötigt, nicht zum Ausführen der Anwendung. Die pinned CLI-Version ist in `package-lock.json` fixiert; `npm ci && npm run build:css` regeneriert `app/static/app.css`. Der Docker-Build führt diesen Schritt selbst aus und enthält im Runtime-Image weder Node.js noch npm.
+Die HTML-Oberfläche verwendet Tailwind CSS. Node.js/npm werden für den CSS-Build benötigt. Die gepinnte CLI-Version steht in `package-lock.json`; `npm ci && npm run build:css` regeneriert `app/static/app.css`.
 
-### Docker Compose
+### Paket-Releases
 
-Lege zuerst deine lokale Konfiguration an und trage insbesondere die Google-OAuth- und Session-Werte ein:
-
-```bash
-cp .env.example .env
-docker compose up --build -d
-```
-
-Die Anwendung ist anschließend standardmäßig auf Port `8000` erreichbar. Die SQLite-Datenbank liegt im persistenten Volume `feedvanta-data`. Ein Update oder Austausch des Containers löscht die Konfiguration daher nicht.
-
-Für ein aus der GitHub Container Registry geladenes Image setzt du vor dem Start den vollständigen Image-Namen:
+Bei jedem neu gepushten Tag im Format `plugin-feedvanta-v<version>` führt `.github/workflows/plugin-release.yml` die Tests aus, prüft die Versionsübereinstimmung mit `pyproject.toml`, baut FeedVanta als Python-Wheel und Source-Archive und hängt beide als Assets an ein GitHub Release an. PyHost oder ein Deployment-Build kann das Wheel direkt aus einem Release installieren, zum Beispiel:
 
 ```bash
-FEEDVANTA_IMAGE=ghcr.io/OWNER/REPOSITORY:1.2.3 docker compose up -d
+python -m pip install \
+  https://github.com/viper3400/feedvanta/releases/download/plugin-feedvanta-v0.3.0/feedvanta-0.3.0-py3-none-any.whl
 ```
 
-Mit `FEEDVANTA_PORT` kann der veröffentlichte Host-Port geändert werden. Das Image läuft als unprivilegierter Benutzer und prüft den Host-Endpunkt `/health`.
-
-### Container-Releases
-
-Bei jedem neu gepushten Git-Tag führt `.github/workflows/publish-container.yml` zuerst die Tests aus und veröffentlicht danach ein Multi-Arch-Image für `linux/amd64` und `linux/arm64` unter:
-
-```text
-ghcr.io/OWNER/REPOSITORY:TAG
-```
-
-Semantische Tags wie `v1.2.3` erzeugen zusätzlich die passenden Versions-Aliase. Der Workflow authentifiziert sich mit dem eingebauten `GITHUB_TOKEN`; es ist kein separates Registry-Secret erforderlich. Neue GitHub-Packages sind standardmäßig möglicherweise privat und können in den Package-Einstellungen öffentlich geschaltet werden.
+Das Release-Asset ist ein herunterladbares Paket, kein Python-Paketindex. Für private Repositories benötigt der Build, der es installiert, GitHub-Zugangsdaten.
 
 ### Betrieb hinter einem Reverse Proxy
 

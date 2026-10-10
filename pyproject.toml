@@ -2,6 +2,7 @@
 name = "feedvanta"
 version = "0.3.0"
 description = "Small RSS/Atom filter server for feed readers"
+readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
   "apscheduler>=3.10,<4",

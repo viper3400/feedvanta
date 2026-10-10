@@ -7,6 +7,8 @@
 - Extracted the ASGI plugin host into the independently installable sibling
   project `pyhost`, removed FeedVanta's runtime dependency on the host, and
   raised the minimum Python version to 3.13.
+- Replaced standalone container releases with Python package assets on GitHub
+  Releases for installation by a PyHost deployment.
 - Refreshed the web interface with a consistent modern visual style.
 - Applied the Tailwind design to the central tools landing page.
 
