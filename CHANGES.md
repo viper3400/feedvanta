@@ -20,3 +20,4 @@
 - Added `uv` dependency locking and setup guidance.
 - Refresh intervals can be changed from the feed configuration page.
 - Replaced inline page styles with a locally served, Tailwind-generated stylesheet.
+- Refreshed the web interface with a consistent modern visual style.
