@@ -1,7 +1,9 @@
 import json
+import re
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
@@ -241,7 +243,15 @@ def test_host_discovers_and_mounts_feedvanta(tmp_path: Path):
     host = create_host([plugin])
     with TestClient(host) as client:
         assert client.get("/health").json() == {"status": "ok", "plugins": ["feedvanta"]}
-        assert '/feedvanta/' in client.get("/").text
+        home = client.get("/")
+        assert '/feedvanta/' in home.text
+        assert "Your tools, in one place." in home.text
+        stylesheet_url = re.search(r'<link rel="stylesheet" href="([^"]+)"', home.text)
+        assert stylesheet_url
+        stylesheet = client.get(urlsplit(stylesheet_url.group(1)).path)
+        assert stylesheet.status_code == 200
+        assert "text/css" in stylesheet.headers["content-type"]
+        assert b"--color-indigo-600" in stylesheet.content
         landing = client.get("/feedvanta/", follow_redirects=False)
         assert landing.status_code == 303
         assert landing.headers["location"].endswith("/feedvanta/login")

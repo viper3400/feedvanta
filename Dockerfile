@@ -4,6 +4,7 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY app/templates ./app/templates
+COPY tool_host ./tool_host
 COPY app/static/input.css ./app/static/input.css
 RUN npm run build:css
 

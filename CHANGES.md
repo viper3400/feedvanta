@@ -10,6 +10,7 @@
 ### Changed
 
 - Refreshed the web interface with a consistent modern visual style.
+- Applied the Tailwind design to the central tools landing page.
 
 ## 0.2.0
 
