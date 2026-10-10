@@ -77,6 +77,10 @@ class FeedCreate(BaseModel):
     refresh_interval: int = Field(default=30, ge=1, le=10080)
 
 
+class RefreshIntervalUpdate(BaseModel):
+    refresh_interval: int = Field(ge=1, le=10080)
+
+
 class RuleCreate(BaseModel):
     field: str = Field(pattern="^(title|content|author|category|all)$")
     operator: str = Field(pattern="^(contains|regex|equals)$")
@@ -336,6 +340,37 @@ def create_app(
     def create_feed_form(request: Request, name: str = Form(...), source_url: str = Form(...), refresh_interval: int = Form(30), _user: dict = Depends(require_admin)):
         insert_feed(FeedCreate(name=name, source_url=source_url, refresh_interval=refresh_interval))
         return RedirectResponse(route_url(request, "index"), status_code=303)
+
+    def save_refresh_interval(feed_id: int, refresh_interval: int) -> int:
+        with database.connect() as conn:
+            feed = conn.execute(
+                "SELECT refresh_interval FROM feeds WHERE id=?", (feed_id,)
+            ).fetchone()
+            if not feed:
+                raise HTTPException(404, "Feed nicht gefunden")
+            if feed["refresh_interval"] != refresh_interval:
+                conn.execute(
+                    "UPDATE feeds SET refresh_interval=? WHERE id=?",
+                    (refresh_interval, feed_id),
+                )
+                bump_config_revision(conn)
+        return refresh_interval
+
+    @app.patch("/api/feeds/{feed_id}/refresh-interval")
+    def update_refresh_interval_api(
+        feed_id: int, payload: RefreshIntervalUpdate,
+        _user: dict = Depends(require_admin),
+    ):
+        return {"refresh_interval": save_refresh_interval(feed_id, payload.refresh_interval)}
+
+    @app.post("/feeds/{feed_id}/refresh-interval")
+    def update_refresh_interval_form(
+        request: Request, feed_id: int,
+        refresh_interval: int = Form(..., ge=1, le=10080),
+        _user: dict = Depends(require_admin),
+    ):
+        save_refresh_interval(feed_id, refresh_interval)
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
     @app.delete("/api/feeds/{feed_id}", status_code=204)
     def delete_feed(feed_id: int, _user: dict = Depends(require_admin)):

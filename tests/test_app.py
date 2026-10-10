@@ -150,6 +150,58 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert "https://example.com/icon.png" in reader.text
 
 
+def test_refresh_interval_is_editable_and_applies_on_next_scheduler_check(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    now = datetime.now(timezone.utc)
+    with TestClient(app) as client:
+        authenticate(client, app)
+        feed_id = client.post("/api/feeds", json={
+            "name": "Test", "source_url": "https://example.com/feed.xml", "refresh_interval": 30,
+        }).json()["id"]
+        with app.state.db.connect() as conn:
+            conn.execute(
+                "UPDATE feeds SET last_fetched_at=? WHERE id=?",
+                ((now - timedelta(minutes=20)).isoformat(), feed_id),
+            )
+
+        assert "Abrufintervall (Min.)" in client.get("/").text
+        details = client.get(f"/feeds/{feed_id}")
+        assert "Abrufintervall (Min.)" in details.text
+
+        saved = client.post(
+            f"/feeds/{feed_id}/refresh-interval", data={"refresh_interval": "10"},
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+
+        refreshed = []
+        service = FeedService(app.state.db)
+        service.refresh = lambda current_feed_id: refreshed.append(current_feed_id)
+        service.refresh_due()
+        assert refreshed == [feed_id]
+
+        with app.state.db.connect() as conn:
+            feed = conn.execute(
+                "SELECT refresh_interval FROM feeds WHERE id=?", (feed_id,)
+            ).fetchone()
+        assert feed["refresh_interval"] == 10
+
+
+def test_refresh_interval_update_validates_and_returns_not_found(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    with TestClient(app) as client:
+        authenticate(client, app)
+        feed_id = client.post("/api/feeds", json={
+            "name": "Test", "source_url": "https://example.com/feed.xml",
+        }).json()["id"]
+        assert client.patch(
+            f"/api/feeds/{feed_id}/refresh-interval", json={"refresh_interval": 0}
+        ).status_code == 422
+        assert client.patch(
+            "/api/feeds/999/refresh-interval", json={"refresh_interval": 10}
+        ).status_code == 404
+
+
 def test_delete_missing_returns_404(tmp_path: Path):
     app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     with TestClient(app) as client:

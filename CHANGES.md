@@ -18,4 +18,4 @@
 - Feed refresh discovers a website favicon when the source feed provides no
   icon.
 - Added `uv` dependency locking and setup guidance.
-
+- Refresh intervals can be changed from the feed configuration page.
