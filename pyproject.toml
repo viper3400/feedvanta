@@ -27,9 +27,6 @@ feedvanta = "app.plugin:PLUGIN"
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
 
-[dependency-groups]
-dev = ["pydo-fastapi-plugin"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
@@ -40,5 +37,4 @@ include = ["app*"]
 app = ["templates/*.html", "static/app.css"]
 
 [tool.uv.sources]
-pydo-fastapi-plugin = { path = "../pypoc-framework/pytodo", editable = true }
 pyhost = { path = "../pyhost", editable = true }
