@@ -1,5 +1,16 @@
 # Changes
 
+## 0.3.0
+
+### Added
+
+- Feed refresh intervals can be edited from each feed's configuration page.
+- Replaced inline page styles with a locally served, Tailwind-generated stylesheet.
+
+### Changed
+
+- Refreshed the web interface with a consistent modern visual style.
+
 ## 0.2.0
 
 ### Breaking changes
@@ -18,6 +29,3 @@
 - Feed refresh discovers a website favicon when the source feed provides no
   icon.
 - Added `uv` dependency locking and setup guidance.
-- Refresh intervals can be changed from the feed configuration page.
-- Replaced inline page styles with a locally served, Tailwind-generated stylesheet.
-- Refreshed the web interface with a consistent modern visual style.
