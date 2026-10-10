@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from typing import Any
@@ -10,6 +10,8 @@ import feedparser
 
 from .db import Database
 from .models import utcnow
+
+ENTRY_RETENTION = timedelta(days=7)
 
 
 def _entry_text(entry: dict, field: str) -> str:
@@ -137,8 +139,17 @@ class FeedService:
                     int(is_hidden(dict(row), rules)), row["id"]
                 ))
 
+    def prune_expired_entries(self) -> None:
+        cutoff = (datetime.now(timezone.utc) - ENTRY_RETENTION).isoformat()
+        with self.db.connect() as conn:
+            conn.execute(
+                "DELETE FROM entries WHERE datetime(fetched_at) < datetime(?)",
+                (cutoff,),
+            )
+
     def refresh_due(self) -> None:
         now = datetime.now(timezone.utc)
+        self.prune_expired_entries()
         with self.db.connect() as conn:
             feeds = conn.execute("SELECT * FROM feeds WHERE enabled = 1").fetchall()
         for feed in feeds:

@@ -9,7 +9,7 @@ from itsdangerous import TimestampSigner
 from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
 from app.plugin import PLUGIN
-from app.services import feed_metadata, is_hidden, rule_matches
+from app.services import FeedService, feed_metadata, is_hidden, rule_matches
 from dataclasses import replace
 from tool_host.app import create_app as create_host
 
@@ -39,6 +39,32 @@ def test_original_feed_metadata():
     assert feed_metadata(parsed, "https://example.com/rss/feed.xml") == (
         "Originaltitel", "https://example.com/assets/icon.png"
     )
+
+
+def test_database_retention_uses_fetch_time_not_publication_time(tmp_path: Path):
+    app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
+    now = datetime.now(timezone.utc)
+    with app.state.db.connect() as conn:
+        feed_id = conn.execute(
+            "INSERT INTO feeds(name,source_url,created_at) VALUES(?,?,?)",
+            ("Test", "https://example.com/feed.xml", now.isoformat()),
+        ).lastrowid
+        conn.executemany(
+            "INSERT INTO entries(feed_id,guid,title,published,fetched_at) VALUES(?,?,?,?,?)",
+            [
+                (feed_id, "expired", "Expired", now.isoformat(),
+                 (now - timedelta(days=8)).isoformat()),
+                (feed_id, "recent", "Recent", (now - timedelta(days=30)).isoformat(),
+                 (now - timedelta(days=6)).isoformat()),
+            ],
+        )
+
+    FeedService(app.state.db).prune_expired_entries()
+    with app.state.db.connect() as conn:
+        stored = conn.execute(
+            "SELECT guid FROM entries WHERE feed_id=?", (feed_id,)
+        ).fetchall()
+    assert [row["guid"] for row in stored] == ["recent"]
 
 
 def test_feed_rule_and_rss_api(tmp_path: Path):

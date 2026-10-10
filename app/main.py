@@ -92,6 +92,7 @@ def create_app(
     database = Database(db_path or os.getenv("FEEDVANTA_DB", "data/feedvanta.db"))
     database.initialize()
     service = FeedService(database)
+    service.prune_expired_entries()
     auth_service = AuthService(database)
     configuration_service = ConfigurationService(database)
     scheduler = BackgroundScheduler(daemon=True)
