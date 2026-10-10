@@ -24,7 +24,7 @@ Bei jedem neu gepushten Tag im Format `plugin-feedvanta-v<version>` führt `.git
 
 ```bash
 python -m pip install \
-  https://github.com/viper3400/feedvanta/releases/download/plugin-feedvanta-v0.3.0/feedvanta-0.3.0-py3-none-any.whl
+  https://github.com/viper3400/feedvanta/releases/download/plugin-feedvanta-v0.4.0/feedvanta-0.4.0-py3-none-any.whl
 ```
 
 Das Release-Asset ist ein herunterladbares Paket, kein Python-Paketindex. Für private Repositories benötigt der Build, der es installiert, GitHub-Zugangsdaten.
@@ -93,7 +93,7 @@ Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist fü
 
 FeedVanta unterscheidet drei unabhängige Versionen:
 
-- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.3.0`.
+- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.4.0`.
 - **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats. Ein Import ist nur bei unterstützter Schema-Version möglich.
 - **Config-Version** (`config_version`): Revision der konkreten Feedkonfiguration. Sie wird bei jedem Hinzufügen oder Löschen eines Feeds und bei jeder Änderung der Filterregeln erhöht. Beim Import wird die Revision der importierten Konfiguration übernommen.
 
@@ -103,7 +103,7 @@ Das Exportformat enthält ausschließlich Feeds und Filterregeln:
 
 ```json
 {
-  "app_version": "0.3.0",
+  "app_version": "0.4.0",
   "schema_version": 1,
   "config_version": 12,
   "exported_at": "2026-09-26T10:00:00+00:00",
