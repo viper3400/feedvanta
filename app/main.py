@@ -2,7 +2,7 @@ import os
 import secrets
 from mimetypes import guess_type
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -409,13 +409,14 @@ def create_app(
 
     @app.get("/feed/{feed_id}.xml")
     def rss(feed_id: int, request: Request):
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         with database.connect() as conn:
             feed = conn.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
             if not feed:
                 raise HTTPException(404, "Feed nicht gefunden")
             entries = conn.execute(
-                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 "
-                "ORDER BY COALESCE(published,fetched_at) DESC LIMIT 500", (feed_id,)
+                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 AND published>=? "
+                "ORDER BY published DESC LIMIT 500", (feed_id, cutoff)
             ).fetchall()
         root = Element("rss", {"version": "2.0", "xmlns:atom": "http://www.w3.org/2005/Atom"})
         channel = SubElement(root, "channel")

@@ -1,5 +1,6 @@
 import json
 from base64 import b64encode
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -58,8 +59,8 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
                 "INSERT INTO entries(feed_id,guid,title,url,content,author,category,published,fetched_at,hidden) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (feed_id, "visible", "Sichtbarer Artikel", "https://example.com/visible.mp4",
-                 "<p>Eine kurze Meldung</p>", "Ada", "Tech", "2026-09-25T10:00:00+00:00",
-                 "2026-09-25T10:01:00+00:00", 0),
+                 "<p>Eine kurze Meldung</p>", "Ada", "Tech", datetime.now(timezone.utc).isoformat(),
+                 datetime.now(timezone.utc).isoformat(), 0),
             )
             conn.execute(
                 "INSERT INTO entries(feed_id,guid,title,url,content,fetched_at,hidden) VALUES(?,?,?,?,?,?,?)",
