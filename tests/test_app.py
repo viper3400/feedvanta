@@ -1,6 +1,6 @@
 import json
 from base64 import b64encode
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -67,16 +67,23 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
                 (feed_id, "hidden", "Sport: Versteckter Artikel", "https://example.com/hidden",
                  "Nicht anzeigen", "2026-09-25T10:01:00+00:00", 1),
             )
+            conn.execute(
+                "INSERT INTO entries(feed_id,guid,title,url,content,published,fetched_at,hidden) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (feed_id, "old", "Alter Artikel", "https://example.com/old",
+                 "Älter als 24 Stunden", (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(),
+                 datetime.now(timezone.utc).isoformat(), 0),
+            )
         response = client.post(f"/api/feeds/{feed_id}/rules", json={
             "field": "title", "operator": "contains", "value": "Sport", "action": "exclude"
         })
         assert response.status_code == 201
         listing = client.get("/api/feeds").json()
         assert listing[0]["rules"][0]["value"] == "Sport"
-        assert listing[0]["visible_count"] == 1
+        assert listing[0]["visible_count"] == 2
         assert listing[0]["hidden_count"] == 1
         overview = client.get("/")
-        assert "1 sichtbar" in overview.text
+        assert "2 sichtbar" in overview.text
         assert "1 ausgefiltert" in overview.text
         assert "Regel hinzufügen" not in overview.text
         details = client.get(f"/feeds/{feed_id}")
@@ -90,10 +97,12 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert b"<url>https://example.com/icon.png</url>" in rss.content
         assert b"atom:link" in rss.content
         assert b'<enclosure url="https://example.com/visible.mp4" length="0" type="video/mp4"' in rss.content
+        assert b"Alter Artikel" not in rss.content
         reader = client.get(f"/reader/{feed_id}")
         assert reader.status_code == 200
         assert "Sichtbarer Artikel" in reader.text
         assert "Versteckter Artikel" not in reader.text
+        assert "Alter Artikel" not in reader.text
         assert "Eine kurze Meldung" in reader.text
         assert "Original Feed" in reader.text
         assert "https://example.com/icon.png" in reader.text

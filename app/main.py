@@ -292,13 +292,14 @@ def create_app(
 
     @app.get("/reader/{feed_id}", response_class=HTMLResponse)
     def reader(request: Request, feed_id: int):
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         with database.connect() as conn:
             feed = conn.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
             if not feed:
                 raise HTTPException(404, "Feed nicht gefunden")
             entries = [dict(row) for row in conn.execute(
-                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 "
-                "ORDER BY COALESCE(published,fetched_at) DESC LIMIT 100", (feed_id,)
+                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 AND published>=? "
+                "ORDER BY published DESC LIMIT 100", (feed_id, cutoff)
             )]
         return templates.TemplateResponse(request, "reader.html", {
             "feed": dict(feed), "entries": entries,
