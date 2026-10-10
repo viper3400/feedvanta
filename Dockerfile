@@ -4,7 +4,6 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY app/templates ./app/templates
-COPY tool_host ./tool_host
 COPY app/static/input.css ./app/static/input.css
 RUN npm run build:css
 
@@ -13,7 +12,6 @@ FROM python:3.13-slim AS builder
 WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY app ./app
-COPY tool_host ./tool_host
 COPY --from=css-builder /build/app/static/app.css ./app/static/app.css
 RUN python -m pip wheel --no-cache-dir --wheel-dir /wheels .
 
@@ -39,4 +37,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)"
 
-CMD ["uvicorn", "tool_host.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["pyhost", "--host", "0.0.0.0", "--port", "8000"]

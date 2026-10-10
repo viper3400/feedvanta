@@ -2,15 +2,18 @@
 
 ## 0.3.0
 
-### Added
-
-- Feed refresh intervals can be edited from each feed's configuration page.
-- Replaced inline page styles with a locally served, Tailwind-generated stylesheet.
-
 ### Changed
 
+- Extracted the ASGI plugin host into the independently installable sibling
+  project `pyhost` and raised the minimum Python version to 3.13.
 - Refreshed the web interface with a consistent modern visual style.
 - Applied the Tailwind design to the central tools landing page.
+
+### Added
+
+- Added a minimal example plugin and documentation for the PyHost plugin contract.
+- Feed refresh intervals can be edited from each feed's configuration page.
+- Replaced inline page styles with a locally served, Tailwind-generated stylesheet.
 
 ## 0.2.0
 

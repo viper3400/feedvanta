@@ -2,7 +2,7 @@
 
 ## Project
 
-- FeedVanta is a Python 3.11+ FastAPI application that reads RSS/Atom feeds,
+- FeedVanta is a Python 3.13+ FastAPI application that reads RSS/Atom feeds,
   stores entries in SQLite, applies filters, and publishes generated RSS feeds.
 - Follow the existing project structure and style. Keep changes focused and
   avoid adding dependencies unless they are necessary.
@@ -13,6 +13,9 @@
   the last 24 hours; entries without a publication timestamp are not included.
 - If a change requires a database schema update, include the corresponding
   migration/initialization change and tests.
+- The independently packaged PyHost ASGI plugin host and its plugin contract
+  live in the sibling project `../pyhost`; FeedVanta is installed as a plugin through the
+  `tool_host.plugins` entry-point group.
 
 ## Tests
 

@@ -7,10 +7,10 @@ FeedVanta lädt RSS-/Atom-Feeds regelmäßig, speichert Artikel lokal, filtert s
 ```bash
 uv sync --extra test
 npm ci && npm run build:css
-uv run feedvanta-host --reload
+uv run pyhost --reload
 ```
 
-Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unter <http://127.0.0.1:8000/feedvanta/> erreichbar. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
+Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unter <http://127.0.0.1:8000/feedvanta/> erreichbar. Der eigenständige Host und sein Plugin-Vertrag liegen im separaten Geschwisterprojekt `../pyhost`; für lokale Entwicklung muss es dort ausgecheckt sein. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
 
 ### Frontend-Styles
 
