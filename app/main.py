@@ -11,7 +11,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from apscheduler.schedulers.background import BackgroundScheduler
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from pydantic import BaseModel, Field, HttpUrl
@@ -133,6 +133,10 @@ def create_app(
     app.state.start_refresh_scheduler = start_refresh_scheduler
     app.state.stop_refresh_scheduler = stop_refresh_scheduler
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+    @app.get("/static/app.css", name="static")
+    def static_stylesheet():
+        return FileResponse(BASE_DIR / "static" / "app.css", media_type="text/css")
 
     def route_url(request: Request, endpoint: str, **params) -> str:
         try:

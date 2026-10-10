@@ -1,9 +1,19 @@
+FROM node:22-alpine AS css-builder
+
+WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY app/templates ./app/templates
+COPY app/static/input.css ./app/static/input.css
+RUN npm run build:css
+
 FROM python:3.13-slim AS builder
 
 WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY tool_host ./tool_host
+COPY --from=css-builder /build/app/static/app.css ./app/static/app.css
 RUN python -m pip wheel --no-cache-dir --wheel-dir /wheels .
 
 FROM python:3.13-slim AS runtime

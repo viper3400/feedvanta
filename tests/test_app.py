@@ -221,6 +221,11 @@ def test_application_below_subpath(tmp_path: Path):
         feed_id = response.json()["id"]
         page = client.get("/feedvanta/")
         assert page.status_code == 200
+        assert 'href="http://testserver/feedvanta/static/app.css"' in page.text
+        stylesheet = client.get("/feedvanta/static/app.css")
+        assert stylesheet.status_code == 200
+        assert "text/css" in stylesheet.headers["content-type"]
+        assert b"--color-slate-100" in stylesheet.content
         assert f'http://testserver/feedvanta/reader/{feed_id}' in page.text
         assert f'http://testserver/feedvanta/feed/{feed_id}.xml' in page.text
         assert client.get("/").status_code == 404
@@ -246,7 +251,7 @@ def test_host_discovers_and_mounts_feedvanta(tmp_path: Path):
         authenticate(client, mounted_app)
         overview = client.get("/feedvanta/")
         assert overview.status_code == 200
-        assert 'href="http://testserver/feedvanta/admin/config"' in overview.text
+        assert "/feedvanta/admin/config\">Konfiguration" in overview.text
 
 
 def test_host_honors_nginx_forwarded_prefix(tmp_path: Path):
@@ -336,6 +341,8 @@ def test_configuration_requires_admin_but_feeds_are_public(tmp_path: Path):
         login = client.get("/login")
         assert login.status_code == 200
         assert "FeedVanta" in login.text
+        assert 'href="http://testserver/static/app.css"' in login.text
+        assert client.get("/static/app.css").status_code == 200
         assert client.get("/api/feeds").status_code == 401
         assert client.get(f"/feed/{feed_id}.xml").status_code == 200
         assert client.get(f"/reader/{feed_id}").status_code == 200

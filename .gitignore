@@ -36,6 +36,7 @@ htmlcov/
 !.env.example
 data/
 downloads/
+node_modules/
 *.db
 *.sqlite
 *.sqlite3

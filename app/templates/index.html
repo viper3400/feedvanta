@@ -1,23 +1,19 @@
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>FeedVanta</title>
-  <style>
-    :root{font-family:system-ui,sans-serif;color:#18202a;background:#f4f6f8}body{max-width:980px;margin:3rem auto;padding:0 1rem}h1{margin-bottom:.25rem}.muted{color:#667085}.card{background:#fff;border:1px solid #dfe3e8;border-radius:12px;padding:1.2rem;margin:1rem 0;box-shadow:0 2px 8px #0000000a}.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}input,button{font:inherit;padding:.55rem;border:1px solid #c8ced6;border-radius:7px}button{cursor:pointer;background:#27364b;color:#fff}a{color:#155eef}.feed-form{display:grid;grid-template-columns:minmax(130px,.8fr) minmax(220px,1.5fr) minmax(200px,1fr) auto;gap:.8rem;align-items:end}.field,.interval-field{display:flex;flex-direction:column;gap:.35rem;min-width:0}.field label,.interval-field label{font-size:.9rem;font-weight:600}.field input{width:100%;min-width:0;box-sizing:border-box}.interval-field input{width:6rem}.feed-form>button{white-space:nowrap}.feed{display:flex;gap:1rem;align-items:center}.feed-main{flex:1}.feed h2{margin:.15rem 0}.nav{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}@media(max-width:760px){.feed-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.interval-field{grid-column:1}.feed-form>button{grid-column:2}}@media(max-width:520px){body{margin:1.5rem auto}.feed-form{grid-template-columns:1fr}.interval-field,.feed-form>button{grid-column:auto}}
-  </style>
-</head>
-<body>
-  <div class="row"><div style="margin-right:auto"><h1>FeedVanta</h1><p class="muted">Deine gefilterten Feeds · App {{ app_version }} · Schema {{ schema_version }} · Config {{ config_version }}</p></div><a href="{{ url_for('config_admin') }}">Konfiguration</a><a href="{{ url_for('users_admin') }}">Benutzer</a>{% if current_user.picture_url %}<img src="{{ current_user.picture_url }}" alt="" width="36" height="36" style="border-radius:50%">{% endif %}<span>{{ current_user.name or current_user.email }}</span><form method="post" action="{{ url_for('logout') }}"><button>Abmelden</button></form></div>
-  <section class="card"><h2>Feed hinzufügen</h2>
-    <form class="feed-form" method="post" action="{{ url_for('create_feed_form') }}">
-      <div class="field"><label for="feed-name">Name</label><input id="feed-name" name="name" placeholder="Name" required maxlength="200"></div>
-      <div class="field"><label for="feed-source-url">Originalquelle</label><input id="feed-source-url" type="url" name="source_url" placeholder="https://example.com/feed.xml" required></div>
-      <div class="interval-field"><label for="feed-refresh-interval">Abrufintervall (Min.)</label><input id="feed-refresh-interval" type="number" name="refresh_interval" value="30" min="1" max="10080" required></div>
-      <button>Hinzufügen</button>
-    </form>
-  </section>
-  {% for feed in feeds %}
-  <section class="card feed">{% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="44" height="44" style="object-fit:contain;border-radius:8px">{% endif %}<div class="feed-main"><h2><a href="{{ url_for('feed_detail', feed_id=feed.id) }}">{{ feed.source_title or feed.name }}</a></h2><p class="muted">{{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert</p></div><nav class="nav"><a href="{{ url_for('reader', feed_id=feed.id) }}">Lesen</a><a href="{{ url_for('rss', feed_id=feed.id) }}">RSS</a><a href="{{ url_for('feed_detail', feed_id=feed.id) }}">Konfigurieren →</a></nav></section>
-  {% else %}<p class="muted">Noch keine Feeds vorhanden.</p>{% endfor %}
-</body></html>
+{% extends "base.html" %}
+{% block title %}FeedVanta{% endblock %}
+{% block content %}
+<header class="mb-6 flex flex-wrap items-center gap-4">
+  <div class="mr-auto"><h1 class="text-3xl font-bold tracking-tight">FeedVanta</h1><p class="mt-1 text-sm text-slate-500">Deine gefilterten Feeds · App {{ app_version }} · Schema {{ schema_version }} · Config {{ config_version }}</p></div>
+  <nav class="flex flex-wrap items-center gap-4"><a class="text-blue-700 hover:underline" href="{{ url_for('config_admin') }}">Konfiguration</a><a class="text-blue-700 hover:underline" href="{{ url_for('users_admin') }}">Benutzer</a>{% if current_user.picture_url %}<img src="{{ current_user.picture_url }}" alt="" width="36" height="36" class="rounded-full">{% endif %}<span>{{ current_user.name or current_user.email }}</span><form method="post" action="{{ url_for('logout') }}"><button class="rounded-md bg-slate-800 px-3 py-2 text-white hover:bg-slate-700">Abmelden</button></form></nav>
+</header>
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h2 class="mb-4 text-xl font-semibold">Feed hinzufügen</h2>
+  <form class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1fr_auto]" method="post" action="{{ url_for('create_feed_form') }}">
+    <label class="flex min-w-0 flex-col gap-1 text-sm font-medium" for="feed-name">Name<input class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" id="feed-name" name="name" placeholder="Name" required maxlength="200"></label>
+    <label class="flex min-w-0 flex-col gap-1 text-sm font-medium" for="feed-source-url">Originalquelle<input class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" id="feed-source-url" type="url" name="source_url" placeholder="https://example.com/feed.xml" required></label>
+    <label class="flex min-w-0 flex-col gap-1 text-sm font-medium" for="feed-refresh-interval">Abrufintervall (Min.)<input class="w-24 rounded-md border border-slate-300 px-3 py-2 font-normal" id="feed-refresh-interval" type="number" name="refresh_interval" value="30" min="1" max="10080" required></label>
+    <button class="rounded-md bg-slate-800 px-4 py-2 text-white hover:bg-slate-700" type="submit">Hinzufügen</button>
+  </form>
+</section>
+{% for feed in feeds %}
+<section class="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">{% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="44" height="44" class="rounded-lg object-contain">{% endif %}<div class="min-w-0 flex-1"><h2 class="text-lg font-semibold"><a class="text-blue-700 hover:underline" href="{{ url_for('feed_detail', feed_id=feed.id) }}">{{ feed.source_title or feed.name }}</a></h2><p class="mt-1 text-sm text-slate-500">{{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert</p></div><nav class="flex flex-wrap gap-4"><a class="text-blue-700 hover:underline" href="{{ url_for('reader', feed_id=feed.id) }}">Lesen</a><a class="text-blue-700 hover:underline" href="{{ url_for('rss', feed_id=feed.id) }}">RSS</a><a class="text-blue-700 hover:underline" href="{{ url_for('feed_detail', feed_id=feed.id) }}">Konfigurieren →</a></nav></section>
+{% else %}<p class="text-slate-500">Noch keine Feeds vorhanden.</p>{% endfor %}
+{% endblock %}

@@ -12,5 +12,6 @@ dist
 .env
 data
 downloads
+node_modules
 tests
 .DS_Store

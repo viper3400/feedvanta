@@ -6,10 +6,15 @@ FeedVanta lädt RSS-/Atom-Feeds regelmäßig, speichert Artikel lokal, filtert s
 
 ```bash
 uv sync --extra test
+npm ci && npm run build:css
 uv run feedvanta-host --reload
 ```
 
 Danach zeigt <http://127.0.0.1:8000> die installierten Tools. FeedVanta ist unter <http://127.0.0.1:8000/feedvanta/> erreichbar. Die SQLite-Datei wird standardmäßig als `data/feedvanta.db` angelegt. Mit `FEEDVANTA_DB=/anderer/pfad.db` lässt sich der Ort ändern.
+
+### Frontend-Styles
+
+Die HTML-Oberfläche verwendet Tailwind CSS. Node.js/npm werden nur für den CSS-Build benötigt, nicht zum Ausführen der Anwendung. Die pinned CLI-Version ist in `package-lock.json` fixiert; `npm ci && npm run build:css` regeneriert `app/static/app.css`. Der Docker-Build führt diesen Schritt selbst aus und enthält im Runtime-Image weder Node.js noch npm.
 
 ### Docker Compose
 
