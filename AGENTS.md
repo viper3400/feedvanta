@@ -20,6 +20,14 @@
 - Add or update tests for behavior changes, including relevant boundary cases.
 - If tests cannot be run, state why rather than implying they passed.
 
+## Change log
+
+- Update `CHANGES.md` for user-facing changes, including behavior changes and
+  data-retention effects.
+- Keep entries concise and factual. Describe breaking impacts directly; do not
+  use conversational yes/no wording or an “unreleased” label.
+- Do not list version-number bumps as change-log entries.
+
 ## Commits
 
 - Use Conventional Commit messages: `<type>: <imperative summary>` (for example,
