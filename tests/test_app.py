@@ -1,9 +1,7 @@
 import json
-import re
 from base64 import b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
@@ -12,10 +10,15 @@ from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
 from app.plugin import PLUGIN
 from app.services import FeedService, feed_metadata, hidden_reasons, is_hidden, rule_matches, site_icon_url
-from dataclasses import replace
-from tool_host.app import create_app as create_host
 
 TEST_SESSION_SECRET = "test-session-secret"
+
+
+def test_plugin_entry_point_implements_host_contract():
+    assert PLUGIN.id == "feedvanta"
+    assert PLUGIN.path == "/feedvanta"
+    assert callable(PLUGIN.app_factory)
+    assert callable(PLUGIN.lifespan)
 
 
 def authenticate(client: TestClient, app, sub: str = "admin", email: str = "admin@example.com") -> dict:
@@ -231,82 +234,6 @@ def test_application_below_subpath(tmp_path: Path):
         assert f'http://testserver/feedvanta/reader/{feed_id}' in page.text
         assert f'http://testserver/feedvanta/feed/{feed_id}.xml' in page.text
         assert client.get("/").status_code == 404
-
-
-def test_host_discovers_and_mounts_feedvanta(tmp_path: Path):
-    plugin = replace(
-        PLUGIN,
-        app_factory=lambda: create_app(
-            str(tmp_path / "host.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
-        ),
-    )
-    host = create_host([plugin])
-    with TestClient(host) as client:
-        assert client.get("/health").json() == {"status": "ok", "plugins": ["feedvanta"]}
-        home = client.get("/")
-        assert '/feedvanta/' in home.text
-        assert "Your tools, in one place." in home.text
-        stylesheet_url = re.search(r'<link rel="stylesheet" href="([^"]+)"', home.text)
-        assert stylesheet_url
-        stylesheet = client.get(urlsplit(stylesheet_url.group(1)).path)
-        assert stylesheet.status_code == 200
-        assert "text/css" in stylesheet.headers["content-type"]
-        assert b"background:#f1f5f9" in stylesheet.content
-        landing = client.get("/feedvanta/", follow_redirects=False)
-        assert landing.status_code == 303
-        assert landing.headers["location"].endswith("/feedvanta/login")
-        assert client.get("/feedvanta/login").status_code == 200
-        assert client.get("/feedvanta/health").json() == {"status": "ok"}
-        mounted_app = host.routes[-1].app
-        authenticate(client, mounted_app)
-        overview = client.get("/feedvanta/")
-        assert overview.status_code == 200
-        assert "/feedvanta/admin/config\">Konfiguration" in overview.text
-
-
-def test_host_honors_nginx_forwarded_prefix(tmp_path: Path):
-    plugin = replace(
-        PLUGIN,
-        app_factory=lambda: create_app(
-            str(tmp_path / "prefixed-host.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
-        ),
-    )
-    host = create_host([plugin])
-    with TestClient(host) as client:
-        headers = {"X-Forwarded-Prefix": "/suburl"}
-        home = client.get("/", headers=headers)
-        assert 'href="/suburl/feedvanta/"' in home.text
-        landing = client.get("/feedvanta/", headers=headers, follow_redirects=False)
-        assert landing.status_code == 303
-        assert landing.headers["location"].endswith("/suburl/feedvanta/login")
-        assert client.get("/feedvanta/login", headers=headers).status_code == 200
-
-
-def test_host_base_path_environment_variable(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("TOOL_HOST_BASE_PATH", "/private-tools")
-    plugin = replace(
-        PLUGIN,
-        app_factory=lambda: create_app(
-            str(tmp_path / "configured-prefix.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET
-        ),
-    )
-    with TestClient(create_host([plugin])) as client:
-        home = client.get("/")
-        assert 'href="/private-tools/feedvanta/"' in home.text
-        landing = client.get("/feedvanta/", follow_redirects=False)
-        assert landing.headers["location"].endswith("/private-tools/feedvanta/login")
-
-
-def test_host_rejects_duplicate_plugin_paths():
-    from tool_host.app import create_app as create_host
-
-    duplicate = replace(PLUGIN, id="second")
-    try:
-        create_host([PLUGIN, duplicate])
-    except ValueError as exc:
-        assert "Duplicate plugin mount path" in str(exc)
-    else:
-        raise AssertionError("Duplicate plugin mount path was accepted")
 
 
 def test_first_google_user_is_persistent_admin(tmp_path: Path):

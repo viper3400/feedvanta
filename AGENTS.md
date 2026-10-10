@@ -15,7 +15,8 @@
   migration/initialization change and tests.
 - The independently packaged PyHost ASGI plugin host and its plugin contract
   live in the sibling project `../pyhost`; FeedVanta is installed as a plugin through the
-  `tool_host.plugins` entry-point group.
+  `tool_host.plugins` entry-point group. Implement the structural contract
+  without importing or depending on PyHost.
 
 ## Tests
 

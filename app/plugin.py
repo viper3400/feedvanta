@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 from .main import create_app
 from .version import APP_VERSION
-from tool_host.plugins import Plugin
 
 
 @asynccontextmanager
@@ -14,7 +14,7 @@ async def lifespan(app):
         app.state.stop_refresh_scheduler()
 
 
-PLUGIN = Plugin(
+PLUGIN = SimpleNamespace(
     id="feedvanta",
     name="FeedVanta",
     description="RSS/Atom feed reader, filtering, and publishing",
