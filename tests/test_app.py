@@ -9,7 +9,7 @@ from itsdangerous import TimestampSigner
 from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
 from app.plugin import PLUGIN
-from app.services import FeedService, feed_metadata, is_hidden, rule_matches
+from app.services import FeedService, feed_metadata, hidden_reasons, is_hidden, rule_matches
 from dataclasses import replace
 from tool_host.app import create_app as create_host
 
@@ -30,6 +30,14 @@ def test_filter_semantics():
     assert is_hidden(entry, [{"enabled": 1, "action": "exclude", "field": "title", "operator": "contains", "value": "bitcoin"}])
     assert not is_hidden(entry, [{"enabled": 1, "action": "include", "field": "title", "operator": "contains", "value": "python"}])
     assert is_hidden(entry, [{"enabled": 1, "action": "include", "field": "title", "operator": "contains", "value": "rust"}])
+
+
+def test_hidden_reasons_explain_exclude_and_include_rules():
+    entry = {"title": "Python news", "content": "", "author": "", "category": ""}
+    exclude = {"enabled": 1, "action": "exclude", "field": "title", "operator": "contains", "value": "python"}
+    include = {"enabled": 1, "action": "include", "field": "title", "operator": "contains", "value": "rust"}
+    assert "Ausschlussregel" in hidden_reasons(entry, [exclude])[0]
+    assert "Keine aktive Einschlussregel trifft zu" in hidden_reasons(entry, [include])[0]
 
 
 def test_original_feed_metadata():
@@ -116,6 +124,9 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert details.status_code == 200
         assert "Regel hinzufügen" in details.text
         assert "Feed löschen" in details.text
+        assert "Ausgefilterte Einträge" in details.text
+        assert "Versteckter Artikel" in details.text
+        assert "Ausschlussregel" in details.text
         rss = client.get(f"/feed/{feed_id}.xml")
         assert rss.status_code == 200
         assert rss.headers["content-type"].startswith("application/rss+xml")

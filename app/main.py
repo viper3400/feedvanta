@@ -22,7 +22,7 @@ from .auth import AuthService, GLOBAL_ADMINISTRATION
 from .configuration import ConfigDocument, ConfigurationService, bump_config_revision
 from .db import Database
 from .models import utcnow
-from .services import FeedService
+from .services import FeedService, hidden_reasons
 from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 
 BASE_DIR = Path(__file__).parent
@@ -198,8 +198,16 @@ def create_app(
         feed = next((item for item in feeds_with_rules() if item["id"] == feed_id), None)
         if not feed:
             raise HTTPException(404, "Feed nicht gefunden")
+        with database.connect() as conn:
+            hidden_entries = [dict(row) for row in conn.execute(
+                "SELECT * FROM entries WHERE feed_id=? AND hidden=1 "
+                "ORDER BY fetched_at DESC LIMIT 100", (feed_id,)
+            )]
+        for entry in hidden_entries:
+            entry["filter_reasons"] = hidden_reasons(entry, feed["rules"])
         return templates.TemplateResponse(request, "feed_detail.html", {
-            "feed": feed, "current_user": user,
+            "feed": feed, "current_user": user, "hidden_entries": hidden_entries,
+            "hidden_entries_truncated": feed["hidden_count"] > len(hidden_entries),
         })
 
     @app.get("/admin/users", response_class=HTMLResponse)

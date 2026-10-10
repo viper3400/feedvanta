@@ -48,6 +48,28 @@ def is_hidden(entry: dict, rules: list[dict]) -> bool:
     return bool(includes) and not any(rule_matches(entry, r) for r in includes)
 
 
+def hidden_reasons(entry: dict, rules: list[dict]) -> list[str]:
+    active = [rule for rule in rules if rule["enabled"]]
+    excludes = [rule for rule in active if rule["action"] == "exclude"]
+    matched_excludes = [rule for rule in excludes if rule_matches(entry, rule)]
+    if matched_excludes:
+        return [
+            f"Ausschlussregel: {rule['field']} {rule['operator']} „{rule['value']}“"
+            for rule in matched_excludes
+        ]
+
+    includes = [rule for rule in active if rule["action"] == "include"]
+    if includes and not any(rule_matches(entry, rule) for rule in includes):
+        return [
+            "Keine aktive Einschlussregel trifft zu: "
+            + "; ".join(
+                f"{rule['field']} {rule['operator']} „{rule['value']}“"
+                for rule in includes
+            )
+        ]
+    return []
+
+
 def _published(value: Any) -> str | None:
     if not value:
         return None
