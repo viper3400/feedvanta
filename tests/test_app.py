@@ -9,7 +9,7 @@ from itsdangerous import TimestampSigner
 from app.auth import GLOBAL_ADMINISTRATION
 from app.main import SubpathMiddleware, create_app
 from app.plugin import PLUGIN
-from app.services import FeedService, feed_metadata, hidden_reasons, is_hidden, rule_matches
+from app.services import FeedService, feed_metadata, hidden_reasons, is_hidden, rule_matches, site_icon_url
 from dataclasses import replace
 from tool_host.app import create_app as create_host
 
@@ -47,6 +47,11 @@ def test_original_feed_metadata():
     assert feed_metadata(parsed, "https://example.com/rss/feed.xml") == (
         "Originaltitel", "https://example.com/assets/icon.png"
     )
+
+
+def test_site_icon_url_resolves_declared_favicon():
+    html = '<link rel="icon" href="/favicon.ico"><link rel="icon" type="image/svg+xml" href="/brand.svg">'
+    assert site_icon_url(html, "https://example.com/news/feed") == "https://example.com/brand.svg"
 
 
 def test_database_retention_uses_fetch_time_not_publication_time(tmp_path: Path):

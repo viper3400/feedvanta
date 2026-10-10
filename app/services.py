@@ -2,8 +2,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
+from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import feedparser
@@ -103,6 +104,44 @@ def feed_metadata(parsed: Any, source_url: str) -> tuple[str | None, str | None]
     return title, urljoin(source_url, str(icon)) if icon else None
 
 
+class _SiteIconParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.icons: list[tuple[int, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "link":
+            return
+        attributes = {name.lower(): value or "" for name, value in attrs}
+        relations = attributes.get("rel", "").lower().split()
+        href = attributes.get("href", "").strip()
+        if "icon" not in relations or not href or href.lower().startswith("data:"):
+            return
+        media_type = attributes.get("type", "").lower()
+        priority = 0 if "svg" in media_type else 1 if "png" in media_type else 2
+        self.icons.append((priority, href))
+
+
+def site_icon_url(html: str, page_url: str) -> str | None:
+    parser = _SiteIconParser()
+    parser.feed(html)
+    if not parser.icons:
+        return None
+    _, href = min(parser.icons, key=lambda icon: icon[0])
+    icon_url = urljoin(page_url, href)
+    return icon_url if urlparse(icon_url).scheme in {"http", "https"} else None
+
+
+def fetch_site_icon(page_url: str) -> str | None:
+    try:
+        request = Request(page_url, headers={"User-Agent": "FeedVanta/0.1"})
+        with urlopen(request, timeout=5) as response:
+            html = response.read().decode("utf-8", errors="replace")
+            return site_icon_url(html, response.geturl())
+    except Exception:
+        return None
+
+
 class FeedService:
     def __init__(self, db: Database):
         self.db = db
@@ -122,6 +161,9 @@ class FeedService:
             if getattr(parsed, "bozo", False) and not parsed.entries:
                 raise ValueError(str(parsed.bozo_exception))
             source_title, icon_url = feed_metadata(parsed, feed["source_url"])
+            if not icon_url:
+                site_url = getattr(parsed, "feed", {}).get("link") or feed["source_url"]
+                icon_url = fetch_site_icon(str(site_url))
             now = utcnow()
             with self.db.connect() as conn:
                 for raw in parsed.entries:
