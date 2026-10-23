@@ -19,13 +19,20 @@ class ConfigRule(BaseModel):
     enabled: bool = True
 
 
+class ConfigSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    source_url: HttpUrl
+    enabled: bool = True
+    refresh_interval: int = Field(ge=1, le=10080)
+
+
 class ConfigFeed(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=200)
-    source_url: HttpUrl
-    enabled: bool = True
-    refresh_interval: int = Field(ge=1, le=10080)
+    source: str = Field(min_length=1)
     rules: list[ConfigRule] = Field(default_factory=list)
 
 
@@ -33,17 +40,36 @@ class ConfigDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     app_version: str = Field(min_length=1)
-    schema_version: int = Field(ge=1)
+    schema_version: Literal[2]
     config_version: int = Field(ge=1)
     exported_at: str | None = None
+    sources: list[ConfigSource]
     feeds: list[ConfigFeed]
 
     @model_validator(mode="after")
-    def unique_feed_urls(self):
-        urls = [str(feed.source_url) for feed in self.feeds]
+    def valid_sources(self):
+        urls = [str(source.source_url) for source in self.sources]
         if len(urls) != len(set(urls)):
             raise ValueError("Feed-URLs müssen innerhalb einer Konfiguration eindeutig sein")
+        keys = [source.key for source in self.sources]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Quellenschlüssel müssen eindeutig sein")
+        if any(feed.source not in keys for feed in self.feeds):
+            raise ValueError("Feed verweist auf eine unbekannte Quelle")
         return self
+
+
+def parse_document(payload: dict) -> ConfigDocument:
+    if not isinstance(payload, dict):
+        raise ValueError("Konfiguration muss ein JSON-Objekt sein")
+    version = payload.get("schema_version")
+    if type(version) is not int or version not in (1, CONFIG_SCHEMA_VERSION):
+        raise ValueError(f"Schema-Version {version} ist nicht kompatibel; unterstützt werden Versionen 1 und 2")
+    if version == 1:
+        from .config_migrations.v1_to_v2 import migrate
+
+        payload = migrate(payload)
+    return ConfigDocument.model_validate(payload)
 
 
 def bump_config_revision(conn: sqlite3.Connection) -> None:
@@ -60,6 +86,11 @@ class ConfigurationService:
 
     def export(self) -> ConfigDocument:
         with self.db.connect() as conn:
+            conn.execute("BEGIN")
+            sources = [ConfigSource(
+                key=f"source-{row['id']}", source_url=row["source_url"],
+                enabled=bool(row["enabled"]), refresh_interval=row["refresh_interval"],
+            ) for row in conn.execute("SELECT * FROM sources ORDER BY id")]
             feeds = []
             for row in conn.execute("SELECT * FROM feeds ORDER BY id"):
                 rules = [ConfigRule(
@@ -69,31 +100,32 @@ class ConfigurationService:
                     "SELECT * FROM filter_rules WHERE feed_id=? ORDER BY id", (row["id"],)
                 )]
                 feeds.append(ConfigFeed(
-                    name=row["name"], source_url=row["source_url"], enabled=bool(row["enabled"]),
-                    refresh_interval=row["refresh_interval"], rules=rules,
+                    name=row["name"], source=f"source-{row['source_id']}", rules=rules,
                 ))
             revision = conn.execute("SELECT revision FROM config_state WHERE id=1").fetchone()[0]
         return ConfigDocument(
             app_version=APP_VERSION, schema_version=CONFIG_SCHEMA_VERSION,
-            config_version=revision, exported_at=utcnow(), feeds=feeds,
+            config_version=revision, exported_at=utcnow(), sources=sources, feeds=feeds,
         )
 
     def export_json(self) -> str:
         return json.dumps(self.export().model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n"
 
     def import_document(self, document: ConfigDocument) -> int:
-        if document.schema_version != CONFIG_SCHEMA_VERSION:
-            raise ValueError(
-                f"Schema-Version {document.schema_version} ist nicht kompatibel; "
-                f"unterstützt wird Version {CONFIG_SCHEMA_VERSION}"
-            )
+        document = ConfigDocument.model_validate(document.model_dump())
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM feeds")
+            conn.execute("DELETE FROM sources")
+            source_ids = {}
+            for source in document.sources:
+                source_ids[source.key] = conn.execute(
+                    "INSERT INTO sources(source_url,enabled,refresh_interval,created_at) VALUES(?,?,?,?)",
+                    (str(source.source_url), int(source.enabled), source.refresh_interval, utcnow()),
+                ).lastrowid
             for feed in document.feeds:
                 cursor = conn.execute(
-                    "INSERT INTO feeds(name,source_url,enabled,refresh_interval,created_at) VALUES(?,?,?,?,?)",
-                    (feed.name, str(feed.source_url), int(feed.enabled), feed.refresh_interval, utcnow()),
+                    "INSERT INTO feeds(name,source_id,created_at) VALUES(?,?,?)",
+                    (feed.name, source_ids[feed.source], utcnow()),
                 )
                 for rule in feed.rules:
                     conn.execute(

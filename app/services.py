@@ -147,61 +147,77 @@ class FeedService:
         self.db = db
 
     def refresh(self, feed_id: int) -> int:
+        """Compatibility entry point: refreshing an output refreshes its source."""
         with self.db.connect() as conn:
-            feed = conn.execute("SELECT * FROM feeds WHERE id = ?", (feed_id,)).fetchone()
+            feed = conn.execute("SELECT source_id FROM feeds WHERE id=?", (feed_id,)).fetchone()
             if not feed:
                 raise LookupError("Feed nicht gefunden")
-            rules = [dict(r) for r in conn.execute(
-                "SELECT * FROM filter_rules WHERE feed_id = ?", (feed_id,)
-            )]
+        return self.refresh_source(feed["source_id"])
+
+    def refresh_source(self, source_id: int) -> int:
+        with self.db.connect() as conn:
+            source = conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+            if not source:
+                raise LookupError("Quelle nicht gefunden")
         try:
-            request = Request(feed["source_url"], headers={"User-Agent": "FeedVanta/0.1"})
+            request = Request(source["source_url"], headers={"User-Agent": "FeedVanta/0.1"})
             with urlopen(request, timeout=20) as response:
                 parsed = feedparser.parse(response.read())
             if getattr(parsed, "bozo", False) and not parsed.entries:
                 raise ValueError(str(parsed.bozo_exception))
-            source_title, icon_url = feed_metadata(parsed, feed["source_url"])
+            source_title, icon_url = feed_metadata(parsed, source["source_url"])
             if not icon_url:
-                site_url = getattr(parsed, "feed", {}).get("link") or feed["source_url"]
+                site_url = getattr(parsed, "feed", {}).get("link") or source["source_url"]
                 icon_url = fetch_site_icon(str(site_url))
             now = utcnow()
             with self.db.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
                 for raw in parsed.entries:
                     entry = normalize_entry(raw)
-                    entry["hidden"] = int(is_hidden(entry, rules))
                     conn.execute("""
                         INSERT INTO entries
-                          (feed_id,guid,title,url,content,author,category,published,fetched_at,hidden)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)
-                        ON CONFLICT(feed_id,guid) DO UPDATE SET
+                          (source_id,guid,title,url,content,author,category,published,fetched_at)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(source_id,guid) DO UPDATE SET
                           title=excluded.title,url=excluded.url,content=excluded.content,
                           author=excluded.author,category=excluded.category,
-                          published=excluded.published,fetched_at=excluded.fetched_at,
-                          hidden=excluded.hidden
-                    """, (feed_id, entry["guid"], entry["title"], entry["url"],
+                          published=excluded.published,fetched_at=excluded.fetched_at
+                    """, (source_id, entry["guid"], entry["title"], entry["url"],
                           entry["content"], entry["author"], entry["category"],
-                          entry["published"], now, entry["hidden"]))
+                          entry["published"], now))
+                for output in conn.execute("SELECT id FROM feeds WHERE source_id=?", (source_id,)).fetchall():
+                    self.reapply_rules_in_transaction(conn, output["id"])
                 conn.execute(
-                    "UPDATE feeds SET last_fetched_at=?, last_error=NULL, "
+                    "UPDATE sources SET last_fetched_at=?, last_error=NULL, "
                     "source_title=COALESCE(?,source_title), icon_url=COALESCE(?,icon_url) WHERE id=?",
-                    (now, source_title, icon_url, feed_id),
+                    (now, source_title, icon_url, source_id),
                 )
             return len(parsed.entries)
         except Exception as exc:
             with self.db.connect() as conn:
-                conn.execute("UPDATE feeds SET last_error=? WHERE id=?", (str(exc)[:500], feed_id))
+                conn.execute("UPDATE sources SET last_error=? WHERE id=?", (str(exc)[:500], source_id))
             raise
 
     def reapply_rules(self, feed_id: int) -> None:
         with self.db.connect() as conn:
-            rules = [dict(r) for r in conn.execute(
-                "SELECT * FROM filter_rules WHERE feed_id = ?", (feed_id,)
-            )]
-            entries = conn.execute("SELECT * FROM entries WHERE feed_id = ?", (feed_id,)).fetchall()
-            for row in entries:
-                conn.execute("UPDATE entries SET hidden=? WHERE id=?", (
-                    int(is_hidden(dict(row), rules)), row["id"]
-                ))
+            conn.execute("BEGIN IMMEDIATE")
+            self.reapply_rules_in_transaction(conn, feed_id)
+
+    @staticmethod
+    def reapply_rules_in_transaction(conn, feed_id: int) -> None:
+        feed = conn.execute("SELECT source_id FROM feeds WHERE id=?", (feed_id,)).fetchone()
+        if not feed:
+            raise LookupError("Feed nicht gefunden")
+        rules = [dict(r) for r in conn.execute(
+            "SELECT * FROM filter_rules WHERE feed_id=?", (feed_id,)
+        )]
+        entries = conn.execute("SELECT * FROM entries WHERE source_id=?", (feed["source_id"],)).fetchall()
+        for row in entries:
+            conn.execute(
+                "INSERT INTO feed_entry_visibility(feed_id,entry_id,hidden) VALUES(?,?,?) "
+                "ON CONFLICT(feed_id,entry_id) DO UPDATE SET hidden=excluded.hidden",
+                (feed_id, row["id"], int(is_hidden(dict(row), rules))),
+            )
 
     def prune_expired_entries(self) -> None:
         cutoff = (datetime.now(timezone.utc) - ENTRY_RETENTION).isoformat()
@@ -215,11 +231,11 @@ class FeedService:
         now = datetime.now(timezone.utc)
         self.prune_expired_entries()
         with self.db.connect() as conn:
-            feeds = conn.execute("SELECT * FROM feeds WHERE enabled = 1").fetchall()
-        for feed in feeds:
-            last = datetime.fromisoformat(feed["last_fetched_at"]) if feed["last_fetched_at"] else None
-            if last is None or (now - last).total_seconds() >= feed["refresh_interval"] * 60:
+            sources = conn.execute("SELECT * FROM sources WHERE enabled = 1").fetchall()
+        for source in sources:
+            last = datetime.fromisoformat(source["last_fetched_at"]) if source["last_fetched_at"] else None
+            if last is None or (now - last).total_seconds() >= source["refresh_interval"] * 60:
                 try:
-                    self.refresh(feed["id"])
+                    self.refresh_source(source["id"])
                 except Exception:
                     pass

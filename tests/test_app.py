@@ -63,16 +63,16 @@ def test_database_retention_uses_fetch_time_not_publication_time(tmp_path: Path)
     app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     now = datetime.now(timezone.utc)
     with app.state.db.connect() as conn:
-        feed_id = conn.execute(
-            "INSERT INTO feeds(name,source_url,created_at) VALUES(?,?,?)",
-            ("Test", "https://example.com/feed.xml", now.isoformat()),
+        source_id = conn.execute(
+            "INSERT INTO sources(source_url,created_at) VALUES(?,?)",
+            ("https://example.com/feed.xml", now.isoformat()),
         ).lastrowid
         conn.executemany(
-            "INSERT INTO entries(feed_id,guid,title,published,fetched_at) VALUES(?,?,?,?,?)",
+            "INSERT INTO entries(source_id,guid,title,published,fetched_at) VALUES(?,?,?,?,?)",
             [
-                (feed_id, "expired", "Expired", now.isoformat(),
+                (source_id, "expired", "Expired", now.isoformat(),
                  (now - timedelta(days=8)).isoformat()),
-                (feed_id, "recent", "Recent", (now - timedelta(days=30)).isoformat(),
+                (source_id, "recent", "Recent", (now - timedelta(days=30)).isoformat(),
                  (now - timedelta(days=6)).isoformat()),
             ],
         )
@@ -80,7 +80,7 @@ def test_database_retention_uses_fetch_time_not_publication_time(tmp_path: Path)
     FeedService(app.state.db).prune_expired_entries()
     with app.state.db.connect() as conn:
         stored = conn.execute(
-            "SELECT guid FROM entries WHERE feed_id=?", (feed_id,)
+            "SELECT guid FROM entries WHERE source_id=?", (source_id,)
         ).fetchall()
     assert [row["guid"] for row in stored] == ["recent"]
 
@@ -94,29 +94,30 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         })
         assert response.status_code == 201
         feed_id = response.json()["id"]
+        source_id = client.get("/api/feeds").json()[0]["source_id"]
         with app.state.db.connect() as conn:
             conn.execute(
-                "UPDATE feeds SET source_title=?, icon_url=? WHERE id=?",
-                ("Original Feed", "https://example.com/icon.png", feed_id),
+                "UPDATE sources SET source_title=?, icon_url=? WHERE id=?",
+                ("Original Feed", "https://example.com/icon.png", source_id),
             )
             conn.execute(
-                "INSERT INTO entries(feed_id,guid,title,url,content,author,category,published,fetched_at,hidden) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (feed_id, "visible", "Sichtbarer Artikel", "https://example.com/visible.mp4",
+                "INSERT INTO entries(source_id,guid,title,url,content,author,category,published,fetched_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (source_id, "visible", "Sichtbarer Artikel", "https://example.com/visible.mp4",
                  "<p>Eine kurze Meldung</p>", "Ada", "Tech", datetime.now(timezone.utc).isoformat(),
-                 datetime.now(timezone.utc).isoformat(), 0),
+                  datetime.now(timezone.utc).isoformat()),
             )
             conn.execute(
-                "INSERT INTO entries(feed_id,guid,title,url,content,fetched_at,hidden) VALUES(?,?,?,?,?,?,?)",
-                (feed_id, "hidden", "Sport: Versteckter Artikel", "https://example.com/hidden",
-                 "Nicht anzeigen", "2026-09-25T10:01:00+00:00", 1),
+                "INSERT INTO entries(source_id,guid,title,url,content,fetched_at) VALUES(?,?,?,?,?,?)",
+                (source_id, "hidden", "Sport: Versteckter Artikel", "https://example.com/hidden",
+                  "Nicht anzeigen", "2026-09-25T10:01:00+00:00"),
             )
             conn.execute(
-                "INSERT INTO entries(feed_id,guid,title,url,content,published,fetched_at,hidden) "
-                "VALUES(?,?,?,?,?,?,?,?)",
-                (feed_id, "old", "Alter Artikel", "https://example.com/old",
+                "INSERT INTO entries(source_id,guid,title,url,content,published,fetched_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (source_id, "old", "Alter Artikel", "https://example.com/old",
                  "Älter als 24 Stunden", (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(),
-                 datetime.now(timezone.utc).isoformat(), 0),
+                  datetime.now(timezone.utc).isoformat()),
             )
         response = client.post(f"/api/feeds/{feed_id}/rules", json={
             "field": "title", "operator": "contains", "value": "Sport", "action": "exclude"
@@ -140,7 +141,7 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         rss = client.get(f"/feed/{feed_id}.xml")
         assert rss.status_code == 200
         assert rss.headers["content-type"].startswith("application/rss+xml")
-        assert b"<title>Original Feed</title>" in rss.content
+        assert b"<title>Test</title>" in rss.content
         assert b"<url>https://example.com/icon.png</url>" in rss.content
         assert b"atom:link" in rss.content
         assert b'<enclosure url="https://example.com/visible.mp4" length="0" type="video/mp4"' in rss.content
@@ -151,7 +152,7 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert "Versteckter Artikel" not in reader.text
         assert "Alter Artikel" not in reader.text
         assert "Eine kurze Meldung" in reader.text
-        assert "Original Feed" in reader.text
+        assert "<h1" in reader.text and ">Test</h1>" in reader.text
         assert "https://example.com/icon.png" in reader.text
 
 
@@ -163,10 +164,11 @@ def test_refresh_interval_is_editable_and_applies_on_next_scheduler_check(tmp_pa
         feed_id = client.post("/api/feeds", json={
             "name": "Test", "source_url": "https://example.com/feed.xml", "refresh_interval": 30,
         }).json()["id"]
+        source_id = client.get("/api/feeds").json()[0]["source_id"]
         with app.state.db.connect() as conn:
             conn.execute(
-                "UPDATE feeds SET last_fetched_at=? WHERE id=?",
-                ((now - timedelta(minutes=20)).isoformat(), feed_id),
+                "UPDATE sources SET last_fetched_at=? WHERE id=?",
+                ((now - timedelta(minutes=20)).isoformat(), source_id),
             )
 
         assert "Abrufintervall (Min.)" in client.get("/").text
@@ -181,13 +183,13 @@ def test_refresh_interval_is_editable_and_applies_on_next_scheduler_check(tmp_pa
 
         refreshed = []
         service = FeedService(app.state.db)
-        service.refresh = lambda current_feed_id: refreshed.append(current_feed_id)
+        service.refresh_source = lambda current_source_id: refreshed.append(current_source_id)
         service.refresh_due()
-        assert refreshed == [feed_id]
+        assert refreshed == [source_id]
 
         with app.state.db.connect() as conn:
             feed = conn.execute(
-                "SELECT refresh_interval FROM feeds WHERE id=?", (feed_id,)
+                "SELECT refresh_interval FROM sources WHERE id=?", (source_id,)
             ).fetchone()
         assert feed["refresh_interval"] == 10
 
@@ -269,9 +271,13 @@ def test_unverified_google_email_is_rejected(tmp_path: Path):
 def test_configuration_requires_admin_but_feeds_are_public(tmp_path: Path):
     app = create_app(str(tmp_path / "test.db"), start_scheduler=False, session_secret=TEST_SESSION_SECRET)
     with app.state.db.connect() as conn:
+        source_id = conn.execute(
+            "INSERT INTO sources(source_url,created_at) VALUES(?,?)",
+            ("https://example.com/rss.xml", "2026-09-26T00:00:00+00:00"),
+        ).lastrowid
         feed_id = conn.execute(
-            "INSERT INTO feeds(name,source_url,refresh_interval,created_at) VALUES(?,?,?,?)",
-            ("Public", "https://example.com/rss.xml", 30, "2026-09-26T00:00:00+00:00"),
+            "INSERT INTO feeds(name,source_id,created_at) VALUES(?,?,?)",
+            ("Public", source_id, "2026-09-26T00:00:00+00:00"),
         ).lastrowid
     with TestClient(app) as client:
         assert client.get("/", follow_redirects=False).status_code == 303
@@ -311,7 +317,7 @@ def test_versioned_config_export_import_roundtrip(tmp_path: Path):
         assert "attachment;" in exported_response.headers["content-disposition"]
         exported = exported_response.json()
         assert exported["app_version"] == "0.4.0"
-        assert exported["schema_version"] == 1
+        assert exported["schema_version"] == 2
         assert exported["config_version"] == 3
         assert exported["feeds"][0]["rules"][0]["value"] == "Sport"
         assert "users" not in exported

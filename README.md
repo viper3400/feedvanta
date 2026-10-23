@@ -1,6 +1,10 @@
 # FeedVanta
 
-FeedVanta lädt RSS-/Atom-Feeds regelmäßig, speichert Artikel lokal, filtert sie und veröffentlicht pro Quelle einen neuen RSS-Feed. Die Ausgabe kann direkt in NetNewsWire abonniert werden.
+FeedVanta lädt RSS-/Atom-Quellen regelmäßig, speichert Artikel lokal und veröffentlicht daraus mehrere unabhängig gefilterte Ausgabe-Feeds. Jede Quelle wird nur einmal geladen; jeder Ausgabe-Feed hat einen eigenen Namen, eigene Regeln sowie eigene RSS- und Lese-URLs. Die Ausgabe kann direkt in NetNewsWire abonniert werden.
+
+In der Übersicht legt **Feed hinzufügen** eine neue Quelle mit ihrem ersten Ausgabe-Feed an. **Gefilterten Feed hinzufügen** erzeugt eine weitere Ausgabe aus einer bestehenden Quelle und wendet ihre Regeln sofort auf gespeicherte Artikel an. **Lesen** öffnet die gefilterte Browseransicht, **RSS** die abonnierbare XML-Ausgabe. Beide enthalten nur sichtbare Artikel mit Veröffentlichungsdatum innerhalb der letzten 24 Stunden.
+
+Abrufintervall, automatisches Laden, Originaltitel, Icon und Abruffehler gehören zur gemeinsamen Quelle. Manuelles Laden aktualisiert alle ihre Ausgabe-Feeds. Das Löschen eines Ausgabe-Feeds entfernt nur dessen Regeln und Sichtbarkeitsergebnisse; Quelle, Artikel und andere Ausgaben bleiben erhalten. Das ausdrücklich bestätigte Löschen einer Quelle entfernt hingegen alle ihre Ausgaben und Artikel. Quellen ohne Ausgaben bleiben verwaltbar und werden bei aktiviertem automatischem Laden weiter abgerufen.
 
 ## Start
 
@@ -91,28 +95,35 @@ Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist fü
 
 ## Versionierte Feedkonfiguration
 
-FeedVanta unterscheidet drei unabhängige Versionen:
+FeedVanta unterscheidet vier unabhängige Versionen:
 
 - **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.4.0`.
-- **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats. Ein Import ist nur bei unterstützter Schema-Version möglich.
-- **Config-Version** (`config_version`): Revision der konkreten Feedkonfiguration. Sie wird bei jedem Hinzufügen oder Löschen eines Feeds und bei jeder Änderung der Filterregeln erhöht. Beim Import wird die Revision der importierten Konfiguration übernommen.
+- **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats, derzeit `2`. Schema `1` wird beim Import automatisch konvertiert; unbekannte Versionen werden abgelehnt.
+- **Datenbankschema-Version** (`PRAGMA user_version`): Struktur der SQLite-Datenbank, derzeit `1`; wird unabhängig vom JSON-Format beim Start migriert.
+- **Config-Version** (`config_version`): Revision der konkreten Konfiguration. Änderungen an Quellen, Ausgabe-Feeds oder Filterregeln erhöhen sie. Abrufe, Aufbewahrungsbereinigung und strukturelle Migrationen ändern sie nicht. Beim Import wird die Revision der importierten Konfiguration übernommen.
 
-Globale Administratoren erreichen Import und Export über **Konfiguration** in der Weboberfläche. Alternativ stehen die geschützten Endpunkte `GET /api/config/export` und `POST /api/config/import` zur Verfügung. Ein Import ersetzt die bestehende Feedkonfiguration vollständig.
+Globale Administratoren erreichen Import und Export über **Konfiguration** in der Weboberfläche. Alternativ stehen die geschützten Endpunkte `GET /api/config/export` und `POST /api/config/import` zur Verfügung. Ein Import ersetzt Quellen, Ausgabe-Feeds und Regeln vollständig und löscht heruntergeladene Artikel. Dabei können sich Abonnement-URLs ändern. Benutzer und Berechtigungen bleiben erhalten. Validierung und Konvertierung geschehen vor der atomaren Ersetzung; ungültige Importe ändern keine Daten.
 
-Das Exportformat enthält ausschließlich Feeds und Filterregeln:
+Das Exportformat enthält ausschließlich Quellen, Ausgabe-Feeds und Filterregeln. Quellenschlüssel sind lokale Referenzen innerhalb der Datei, keine garantierten Datenbank- oder öffentlichen Feed-IDs:
 
 ```json
 {
   "app_version": "0.4.0",
-  "schema_version": 1,
+  "schema_version": 2,
   "config_version": 12,
   "exported_at": "2026-09-26T10:00:00+00:00",
-  "feeds": [
+  "sources": [
     {
-      "name": "Example",
+      "key": "source-1",
       "source_url": "https://example.com/feed.xml",
       "enabled": true,
-      "refresh_interval": 30,
+      "refresh_interval": 30
+    }
+  ],
+  "feeds": [
+    {
+      "name": "Example ohne Sport",
+      "source": "source-1",
       "rules": [
         {
           "field": "title",
@@ -122,12 +133,23 @@ Das Exportformat enthält ausschließlich Feeds und Filterregeln:
           "enabled": true
         }
       ]
-    }
+    },
+    {"name": "Example komplett", "source": "source-1", "rules": []}
   ]
 }
 ```
 
 Benutzer, Berechtigungen, OAuth-Daten, Sitzungen, heruntergeladene Artikel sowie abgeleitete Feed-Metadaten werden niemals mitexportiert.
+
+### Datenbank-Upgrade und Sicherung
+
+Vor dem Upgrade die Anwendung stoppen und die SQLite-Datei sichern, oder eine konsistente Sicherung über die SQLite-Backup-Funktion erstellen. Keine laufende Datenbank durch einfaches Kopieren der Hauptdatei sichern, wenn noch Schreibzugriffe stattfinden.
+
+Beim Start wird eine erkannte bisherige, unversionierte Datenbank transaktional auf das Quellen-/Ausgabe-Modell umgestellt. Pro bisherigem Feed entstehen eine Quelle und eine Ausgabe. Ausgabe-IDs, öffentliche RSS-/Lese-URLs, Regeln, Artikel samt Zeitstempeln und Sichtbarkeit, Quelleneinstellungen, Benutzer, Berechtigungen und Config-Revision bleiben erhalten. Der bisher sichtbare Originaltitel wird, falls vorhanden, zum Ausgabenamen; andernfalls bleibt der konfigurierte Name. Spätere Quellentiteländerungen überschreiben diesen Namen nicht.
+
+Migrationen laufen vor Abrufen und normaler Aufbewahrungsbereinigung; sie löschen selbst keine Artikel. Zusätzliche kompatible Tabellen früherer Funktionen (etwa Downloads und Themen-Digests) samt Daten, Indizes und Artikelreferenzen bleiben erhalten. Fehlende Benutzer-, Berechtigungs- und Konfigurationstabellen älterer Installationen werden angelegt; eine bisher nicht vorhandene Config-Revision beginnt bei 1. Unbekannte Kernlayouts, Namenskonflikte, inkompatible Fremdschlüssel und neuere Schema-Versionen werden abgelehnt. Bei einem Fehler werden Änderungen zurückgerollt und der Start abgebrochen. Ein weiterer Start führt erfolgreiche Migrationen nicht erneut aus. Ein Downgrade erfordert das Wiederherstellen der Sicherung mit der dazu passenden alten Anwendung; eine Rückwärtsmigration wird nicht angeboten.
+
+Die JSON-Konfiguration muss nicht beim Start separat migriert werden: Sie wird nur bei einem Import eingelesen. Historie und Entscheidungen dieser Änderung stehen in [Iteration 001](docs/iterations/001-multiple-output-feeds.md).
 
 ## Video-Downloads
 
@@ -162,15 +184,22 @@ HLS-/DASH-Streams, Videoplattform-Seiten, DRM und `yt-dlp` werden nicht unterst�
 - Vergleiche sind ohne Beachtung der Groß-/Kleinschreibung; Regex nutzt Python-Syntax.
 - Neue oder geänderte Regeln werden sofort auf bereits gespeicherte Artikel angewendet.
 
-Feeds werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft. Zusätzlich gibt es in der Oberfläche eine manuelle Aktualisierung. HTTP-Fehler ändern den vorhandenen Artikelbestand nicht.
+Quellen werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft, nicht einmal pro Ausgabe. Zusätzlich gibt es in der Oberfläche eine manuelle Aktualisierung. HTTP-Fehler ändern den vorhandenen Artikelbestand nicht. Filterregeln gelten ausschließlich für ihre Ausgabe, ohne Vererbung. Ein Ausgabe-Feed ohne aktive Regeln zeigt alle ansonsten zulässigen Artikel seiner Quelle.
 
 ## API und RSS
 
 - `GET /feedvanta/api/feeds` – Feeds samt Regeln auflisten
-- `POST /feedvanta/api/feeds` – Feed als JSON anlegen
+- `POST /feedvanta/api/feeds` – Ausgabe mit `name` und `source_id` anlegen; alternativ mit `source_url` und optionalem `refresh_interval` eine neue Quelle samt erster Ausgabe erstellen
+- `PATCH /feedvanta/api/feeds/{id}` – Ausgabenamen mit `name` ändern
 - `POST /feedvanta/api/feeds/{id}/rules` – Regel als JSON anlegen
-- `POST /feedvanta/api/feeds/{id}/refresh` – Feed sofort abrufen
-- `DELETE /feedvanta/api/feeds/{id}` – Feed löschen
+- `POST /feedvanta/api/feeds/{id}/refresh` – gemeinsame Quelle sofort abrufen und alle ihre Ausgaben aktualisieren
+- `PATCH /feedvanta/api/feeds/{id}/refresh-interval` – gemeinsames Abrufintervall mit `refresh_interval` ändern
+- `DELETE /feedvanta/api/feeds/{id}` – nur Ausgabe und ihre Regeln löschen; Quelle und Artikel behalten
+- `GET /feedvanta/api/sources` – Quellen samt ihren Ausgaben auflisten
+- `POST /feedvanta/api/sources` – neue Quelle samt erster Ausgabe mit `name`, `source_url` und optionalem `refresh_interval` erstellen; Antwort enthält `id` (Quelle) und `feed_id` (Ausgabe)
+- `PATCH /feedvanta/api/sources/{id}` – `enabled` und/oder `refresh_interval` ändern
+- `POST /feedvanta/api/sources/{id}/refresh` – Quelle sofort abrufen
+- `DELETE /feedvanta/api/sources/{id}?confirm=true` – Quelle samt Ausgaben, Regeln und Artikeln löschen; bei vorhandenen Ausgaben ist `confirm=true` erforderlich
 - `DELETE /feedvanta/api/rules/{id}` – Regel löschen
 - `GET /feedvanta/api/config/export` – versionierte Feedkonfiguration exportieren
 - `POST /feedvanta/api/config/import` – versionierte Feedkonfiguration ersetzen
@@ -179,8 +208,20 @@ Feeds werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft. Zu
 
 Beispiel:
 
+Die Verwaltungs-API erfordert eine angemeldete Sitzung mit Global Administration; bei `curl` entsprechend ein Sitzungscookie mitsenden.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/feedvanta/api/feeds \
   -H 'content-type: application/json' \
   -d '{"name":"Heise", "source_url":"https://www.heise.de/rss/heise-atom.xml"}'
 ```
+
+Weitere Ausgabe für eine vorhandene Quelle (Quellen-ID aus `GET /api/sources`):
+
+```bash
+curl -X POST http://127.0.0.1:8000/feedvanta/api/feeds \
+  -H 'content-type: application/json' \
+  -d '{"name":"Heise Python", "source_id":1}'
+```
+
+Anschließend Regeln über `/api/feeds/{id}/rules` hinzufügen. Eine bereits vorhandene `source_url` wird weiterhin mit HTTP 409 abgelehnt; dafür die vorhandene `source_id` verwenden. Bei referenzierten Quellen werden gemeinsame Einstellungen nicht im Ausgabe-Erstellungsrequest mitgegeben.

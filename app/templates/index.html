@@ -13,7 +13,30 @@
     <button class="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600" type="submit">Hinzufügen</button>
   </form>
 </section>
-{% for feed in feeds %}
-<section class="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-white bg-white/90 p-5 shadow-md shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-lg">{% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="44" height="44" class="rounded-xl bg-slate-50 object-contain ring-1 ring-slate-100">{% else %}<span class="grid size-11 place-items-center rounded-xl bg-indigo-50 text-sm font-bold text-indigo-600">RSS</span>{% endif %}<div class="min-w-0 flex-1"><h2 class="text-lg font-semibold tracking-tight"><a class="text-slate-900 transition hover:text-indigo-700" href="{{ url_for('feed_detail', feed_id=feed.id) }}">{{ feed.source_title or feed.name }}</a></h2><p class="mt-1 text-sm text-slate-500"><span class="font-medium text-emerald-700">{{ feed.visible_count }} sichtbar</span><span class="mx-1.5 text-slate-300">·</span>{{ feed.hidden_count }} ausgefiltert</p></div><nav class="flex flex-wrap gap-1 rounded-xl bg-slate-50 p-1"><a class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-indigo-700 hover:shadow-sm" href="{{ url_for('reader', feed_id=feed.id) }}">Lesen</a><a class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-indigo-700 hover:shadow-sm" href="{{ url_for('rss', feed_id=feed.id) }}">RSS</a><a class="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-indigo-700 hover:shadow-sm" href="{{ url_for('feed_detail', feed_id=feed.id) }}">Konfigurieren <span aria-hidden="true">→</span></a></nav></section>
-{% else %}<div class="rounded-2xl border border-dashed border-slate-300 bg-white/60 px-6 py-12 text-center text-slate-500">Noch keine Feeds vorhanden. Füge oben deinen ersten Feed hinzu.</div>{% endfor %}
+{% for source in sources %}
+<section class="mb-6 rounded-2xl border border-white bg-white/90 p-5 shadow-md shadow-slate-200/40">
+  <header class="mb-4 flex flex-wrap items-center gap-3">
+    {% if source.icon_url %}<img src="{{ source.icon_url }}" alt="" width="44" height="44" class="rounded-xl object-contain">{% endif %}
+    <div><h2 class="text-lg font-semibold">{{ source.source_title or source.source_url }}</h2><a class="text-sm text-indigo-700" href="{{ source.source_url }}">Originalquelle ↗</a></div>
+  </header>
+  <p class="mb-3 text-sm text-slate-500">Gemeinsame Quelle für alle untenstehenden Feeds. Letzter Abruf: {{ source.last_fetched_at or 'noch nie' }}.</p>
+  {% if source.last_error %}<p class="mb-3 rounded-xl bg-red-50 p-3 text-red-800">Letzter Fehler: {{ source.last_error }}</p>{% endif %}
+  <form class="mb-3 flex flex-wrap items-end gap-3" method="post" action="{{ url_for('update_source_form', source_id=source.id) }}">
+    <label class="text-sm">Abrufintervall (Min.) <input class="w-24 rounded-lg border border-slate-200 px-3 py-2.5" type="number" name="refresh_interval" value="{{ source.refresh_interval }}" min="1" max="10080" required></label>
+    <label class="text-sm"><input type="checkbox" name="enabled" value="true" {% if source.enabled %}checked{% endif %}> Automatisch laden</label>
+    <button class="rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">Quelle speichern</button>
+  </form>
+  <div class="mb-4 flex flex-wrap gap-3">
+    <form method="post" action="{{ url_for('refresh_source_form', source_id=source.id) }}"><button class="rounded-lg bg-slate-100 px-3 py-2 text-sm">Alle Feeds jetzt laden</button></form>
+    <form method="post" action="{{ url_for('delete_source_form', source_id=source.id) }}" onsubmit="return confirm('Quelle, alle zugehörigen Feeds und gespeicherten Artikel wirklich löschen?')"><input type="hidden" name="confirm" value="true"><button class="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700">Quelle und Feeds löschen</button></form>
+  </div>
+  {% for feed in source.feeds %}
+  <article class="mb-3 flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 p-4">
+    <div class="min-w-0 flex-1"><h3 class="font-semibold"><a href="{{ url_for('feed_detail', feed_id=feed.id) }}">{{ feed.name }}</a></h3><p class="text-sm text-slate-500">{{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert</p></div>
+    <nav class="flex flex-wrap gap-3 text-sm font-medium text-indigo-700"><a href="{{ url_for('reader', feed_id=feed.id) }}">Lesen</a><a href="{{ url_for('rss', feed_id=feed.id) }}">RSS</a><a href="{{ url_for('feed_detail', feed_id=feed.id) }}">Konfigurieren →</a></nav>
+  </article>
+  {% else %}<p class="mb-3 text-sm text-slate-500">Noch keine Ausgabe-Feeds für diese Quelle.</p>{% endfor %}
+  <form class="flex flex-wrap gap-3" method="post" action="{{ url_for('create_output_form', source_id=source.id) }}"><label class="text-sm">Name des neuen Feeds <input class="rounded-lg border border-slate-200 px-3 py-2.5" name="name" required maxlength="200"></label><button class="rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">Gefilterten Feed hinzufügen</button></form>
+</section>
+{% else %}<p class="text-slate-500">Noch keine Quellen vorhanden. Füge oben deinen ersten Feed hinzu.</p>{% endfor %}
 {% endblock %}

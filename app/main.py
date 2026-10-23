@@ -1,5 +1,7 @@
+import json
 import os
 import secrets
+import sqlite3
 from mimetypes import guess_type
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -14,12 +16,12 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 from dotenv import load_dotenv
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import AuthService, GLOBAL_ADMINISTRATION
-from .configuration import ConfigDocument, ConfigurationService, bump_config_revision
+from .configuration import ConfigurationService, bump_config_revision, parse_document
 from .db import Database
 from .models import utcnow
 from .services import FeedService, hidden_reasons
@@ -72,9 +74,47 @@ class SubpathMiddleware:
 
 
 class FeedCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    source_url: HttpUrl | None = None
+    source_id: int | None = Field(default=None, ge=1)
+    refresh_interval: int = Field(default=30, ge=1, le=10080)
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.source_url is None) == (self.source_id is None):
+            raise ValueError("Genau eine source_url oder source_id ist erforderlich")
+        if self.source_id is not None and "refresh_interval" in self.model_fields_set:
+            raise ValueError("Abrufintervall an der gemeinsamen Quelle ändern")
+        return self
+
+
+class SourceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=200)
     source_url: HttpUrl
     refresh_interval: int = Field(default=30, ge=1, le=10080)
+
+
+class SourceUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_interval: int | None = Field(default=None, ge=1, le=10080)
+    enabled: bool | None = None
+
+
+class FeedUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+
+
+FEED_SELECT = (
+    "SELECT f.*, s.source_url, s.enabled, s.refresh_interval, s.last_fetched_at, "
+    "s.last_error, s.source_title, s.icon_url FROM feeds f JOIN sources s ON s.id=f.source_id"
+)
 
 
 class RefreshIntervalUpdate(BaseModel):
@@ -175,18 +215,43 @@ def create_app(
 
     def feeds_with_rules():
         with database.connect() as conn:
-            feeds = [dict(row) for row in conn.execute("SELECT * FROM feeds ORDER BY name")]
+            conn.execute("BEGIN")
+            feeds = [dict(row) for row in conn.execute(FEED_SELECT + " ORDER BY f.name")]
             for feed in feeds:
                 feed["rules"] = [dict(r) for r in conn.execute(
                     "SELECT * FROM filter_rules WHERE feed_id=? ORDER BY id", (feed["id"],)
                 )]
                 feed["visible_count"] = conn.execute(
-                    "SELECT COUNT(*) FROM entries WHERE feed_id=? AND hidden=0", (feed["id"],)
+                    "SELECT COUNT(*) FROM feed_entry_visibility WHERE feed_id=? AND hidden=0", (feed["id"],)
                 ).fetchone()[0]
                 feed["hidden_count"] = conn.execute(
-                    "SELECT COUNT(*) FROM entries WHERE feed_id=? AND hidden=1", (feed["id"],)
+                    "SELECT COUNT(*) FROM feed_entry_visibility WHERE feed_id=? AND hidden=1", (feed["id"],)
                 ).fetchone()[0]
             return feeds
+
+    def sources_with_feeds():
+        outputs = feeds_with_rules()
+        with database.connect() as conn:
+            sources = [dict(row) for row in conn.execute("SELECT * FROM sources ORDER BY id")]
+        for source in sources:
+            source["feeds"] = [feed for feed in outputs if feed["source_id"] == source["id"]]
+        return sources
+
+    def public_output(feed_id: int, limit: int):
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        with database.connect() as conn:
+            conn.execute("BEGIN")
+            feed = conn.execute(FEED_SELECT + " WHERE f.id=?", (feed_id,)).fetchone()
+            if not feed:
+                raise HTTPException(404, "Feed nicht gefunden")
+            entries = conn.execute(
+                "SELECT e.* FROM entries e JOIN feed_entry_visibility v ON v.entry_id=e.id "
+                "WHERE v.feed_id=? AND e.source_id=? AND v.hidden=0 "
+                "AND publication_timestamp(e.published)>=publication_timestamp(?) "
+                "ORDER BY publication_timestamp(e.published) DESC, e.id DESC LIMIT ?",
+                (feed_id, feed["source_id"], cutoff, limit),
+            ).fetchall()
+        return dict(feed), [dict(row) for row in entries]
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request):
@@ -196,7 +261,7 @@ def create_app(
         if GLOBAL_ADMINISTRATION not in user["permissions"]:
             raise HTTPException(403, "Global Administration erforderlich")
         return templates.TemplateResponse(request, "index.html", {
-            "feeds": feeds_with_rules(), "current_user": user,
+            "sources": sources_with_feeds(), "current_user": user,
             "app_version": APP_VERSION, "schema_version": CONFIG_SCHEMA_VERSION,
             "config_version": configuration_service.revision(),
         })
@@ -208,8 +273,8 @@ def create_app(
             raise HTTPException(404, "Feed nicht gefunden")
         with database.connect() as conn:
             hidden_entries = [dict(row) for row in conn.execute(
-                "SELECT * FROM entries WHERE feed_id=? AND hidden=1 "
-                "ORDER BY fetched_at DESC LIMIT 100", (feed_id,)
+                "SELECT e.* FROM entries e JOIN feed_entry_visibility v ON v.entry_id=e.id "
+                "WHERE v.feed_id=? AND v.hidden=1 ORDER BY e.fetched_at DESC LIMIT 100", (feed_id,)
             )]
         for entry in hidden_entries:
             entry["filter_reasons"] = hidden_reasons(entry, feed["rules"])
@@ -241,8 +306,9 @@ def create_app(
         )
 
     @app.post("/api/config/import")
-    def import_config(document: ConfigDocument, _user: dict = Depends(require_admin)):
+    def import_config(payload: dict, _user: dict = Depends(require_admin)):
         try:
+            document = parse_document(payload)
             count = configuration_service.import_document(document)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
@@ -257,7 +323,7 @@ def create_app(
             payload = await config_file.read(1_000_001)
             if len(payload) > 1_000_000:
                 raise HTTPException(413, "Konfigurationsdatei ist größer als 1 MB")
-            document = ConfigDocument.model_validate_json(payload)
+            document = parse_document(json.loads(payload))
             configuration_service.import_document(document)
         except HTTPException:
             raise
@@ -309,15 +375,7 @@ def create_app(
 
     @app.get("/reader/{feed_id}", response_class=HTMLResponse)
     def reader(request: Request, feed_id: int):
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        with database.connect() as conn:
-            feed = conn.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
-            if not feed:
-                raise HTTPException(404, "Feed nicht gefunden")
-            entries = [dict(row) for row in conn.execute(
-                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 AND published>=? "
-                "ORDER BY published DESC LIMIT 100", (feed_id, cutoff)
-            )]
+        feed, entries = public_output(feed_id, 100)
         return templates.TemplateResponse(request, "reader.html", {
             "feed": dict(feed), "entries": entries,
         })
@@ -325,15 +383,25 @@ def create_app(
     def insert_feed(payload: FeedCreate) -> int:
         try:
             with database.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                source_id = payload.source_id
+                if source_id is None:
+                    source_id = conn.execute(
+                        "INSERT INTO sources(source_url,refresh_interval,created_at) VALUES(?,?,?)",
+                        (str(payload.source_url), payload.refresh_interval, utcnow()),
+                    ).lastrowid
+                elif not conn.execute("SELECT 1 FROM sources WHERE id=?", (source_id,)).fetchone():
+                    raise HTTPException(404, "Quelle nicht gefunden")
                 cur = conn.execute(
-                    "INSERT INTO feeds(name,source_url,refresh_interval,created_at) VALUES(?,?,?,?)",
-                    (payload.name, str(payload.source_url), payload.refresh_interval, utcnow()),
+                    "INSERT INTO feeds(name,source_id,created_at) VALUES(?,?,?)",
+                    (payload.name, source_id, utcnow()),
                 )
+                service.reapply_rules_in_transaction(conn, cur.lastrowid)
                 bump_config_revision(conn)
                 return cur.lastrowid
-        except Exception as exc:
-            if "UNIQUE" in str(exc):
-                raise HTTPException(409, "Diese Feed-URL existiert bereits") from exc
+        except sqlite3.IntegrityError as exc:
+            if "sources.source_url" in str(exc):
+                raise HTTPException(409, "Diese Feed-URL existiert bereits; weiteren Ausgabe-Feed mit der vorhandenen source_id anlegen") from exc
             raise
 
     @app.post("/api/feeds", status_code=201)
@@ -341,21 +409,127 @@ def create_app(
         return {"id": insert_feed(payload)}
 
     @app.post("/feeds")
-    def create_feed_form(request: Request, name: str = Form(...), source_url: str = Form(...), refresh_interval: int = Form(30), _user: dict = Depends(require_admin)):
+    def create_feed_form(
+        request: Request, name: str = Form(..., min_length=1, max_length=200),
+        source_url: HttpUrl = Form(...), refresh_interval: int = Form(30, ge=1, le=10080),
+        _user: dict = Depends(require_admin),
+    ):
         insert_feed(FeedCreate(name=name, source_url=source_url, refresh_interval=refresh_interval))
         return RedirectResponse(route_url(request, "index"), status_code=303)
 
+    @app.get("/api/sources")
+    def list_sources(_user: dict = Depends(require_admin)):
+        return sources_with_feeds()
+
+    @app.post("/api/sources", status_code=201)
+    def create_source(payload: SourceCreate, _user: dict = Depends(require_admin)):
+        feed_id = insert_feed(FeedCreate(**payload.model_dump()))
+        with database.connect() as conn:
+            source_id = conn.execute("SELECT source_id FROM feeds WHERE id=?", (feed_id,)).fetchone()[0]
+        return {"id": source_id, "feed_id": feed_id}
+
+    @app.post("/sources/{source_id}/feeds")
+    def create_output_form(
+        request: Request, source_id: int, name: str = Form(..., min_length=1, max_length=200),
+        _user: dict = Depends(require_admin),
+    ):
+        feed_id = insert_feed(FeedCreate(name=name, source_id=source_id))
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
+
+    def save_source(source_id: int, payload: SourceUpdate):
+        with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            source = conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+            if not source:
+                raise HTTPException(404, "Quelle nicht gefunden")
+            changes = payload.model_dump(exclude_none=True)
+            if any(source[key] != value for key, value in changes.items()):
+                for key, value in changes.items():
+                    conn.execute(f"UPDATE sources SET {key}=? WHERE id=?", (value, source_id))
+                bump_config_revision(conn)
+            return dict(conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone())
+
+    @app.patch("/api/sources/{source_id}")
+    def update_source(source_id: int, payload: SourceUpdate, _user: dict = Depends(require_admin)):
+        return save_source(source_id, payload)
+
+    @app.post("/sources/{source_id}/settings")
+    def update_source_form(
+        request: Request, source_id: int,
+        refresh_interval: int = Form(..., ge=1, le=10080), enabled: bool = Form(False),
+        _user: dict = Depends(require_admin),
+    ):
+        save_source(source_id, SourceUpdate(refresh_interval=refresh_interval, enabled=enabled))
+        return RedirectResponse(route_url(request, "index"), status_code=303)
+
+    @app.delete("/api/sources/{source_id}", status_code=204)
+    def delete_source(source_id: int, confirm: bool = False, _user: dict = Depends(require_admin)):
+        with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not conn.execute("SELECT 1 FROM sources WHERE id=?", (source_id,)).fetchone():
+                raise HTTPException(404, "Quelle nicht gefunden")
+            if not confirm and conn.execute("SELECT 1 FROM feeds WHERE source_id=?", (source_id,)).fetchone():
+                raise HTTPException(409, "Quelle enthält Feeds; Löschen mit confirm=true bestätigen")
+            conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
+            bump_config_revision(conn)
+
+    @app.post("/sources/{source_id}/delete")
+    def delete_source_form(
+        request: Request, source_id: int, confirm: bool = Form(False),
+        _user: dict = Depends(require_admin),
+    ):
+        delete_source(source_id, confirm, _user)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
+
+    @app.post("/api/sources/{source_id}/refresh")
+    def refresh_source(source_id: int, _user: dict = Depends(require_admin)):
+        try:
+            return {"fetched": service.refresh_source(source_id)}
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, f"Quelle konnte nicht geladen werden: {exc}") from exc
+
+    @app.post("/sources/{source_id}/refresh")
+    def refresh_source_form(request: Request, source_id: int, _user: dict = Depends(require_admin)):
+        refresh_source(source_id, _user)
+        return RedirectResponse(route_url(request, "index"), status_code=303)
+
+    def save_feed_name(feed_id: int, name: str):
+        with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            feed = conn.execute("SELECT name FROM feeds WHERE id=?", (feed_id,)).fetchone()
+            if not feed:
+                raise HTTPException(404, "Feed nicht gefunden")
+            if feed["name"] != name:
+                conn.execute("UPDATE feeds SET name=? WHERE id=?", (name, feed_id))
+                bump_config_revision(conn)
+
+    @app.patch("/api/feeds/{feed_id}")
+    def update_feed(feed_id: int, payload: FeedUpdate, _user: dict = Depends(require_admin)):
+        save_feed_name(feed_id, payload.name)
+        return {"id": feed_id, "name": payload.name}
+
+    @app.post("/feeds/{feed_id}/name")
+    def update_feed_name_form(
+        request: Request, feed_id: int, name: str = Form(..., min_length=1, max_length=200),
+        _user: dict = Depends(require_admin),
+    ):
+        save_feed_name(feed_id, name)
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
+
     def save_refresh_interval(feed_id: int, refresh_interval: int) -> int:
         with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             feed = conn.execute(
-                "SELECT refresh_interval FROM feeds WHERE id=?", (feed_id,)
+                FEED_SELECT + " WHERE f.id=?", (feed_id,)
             ).fetchone()
             if not feed:
                 raise HTTPException(404, "Feed nicht gefunden")
             if feed["refresh_interval"] != refresh_interval:
                 conn.execute(
-                    "UPDATE feeds SET refresh_interval=? WHERE id=?",
-                    (refresh_interval, feed_id),
+                    "UPDATE sources SET refresh_interval=? WHERE id=?",
+                    (refresh_interval, feed["source_id"]),
                 )
                 bump_config_revision(conn)
         return refresh_interval
@@ -390,6 +564,7 @@ def create_app(
 
     def insert_rule(feed_id: int, payload: RuleCreate) -> int:
         with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             if not conn.execute("SELECT 1 FROM feeds WHERE id=?", (feed_id,)).fetchone():
                 raise HTTPException(404, "Feed nicht gefunden")
             cur = conn.execute(
@@ -397,7 +572,7 @@ def create_app(
                 (feed_id, payload.field, payload.operator, payload.value, payload.action),
             )
             bump_config_revision(conn)
-        service.reapply_rules(feed_id)
+            service.reapply_rules_in_transaction(conn, feed_id)
         return cur.lastrowid
 
     @app.post("/api/feeds/{feed_id}/rules", status_code=201)
@@ -405,19 +580,26 @@ def create_app(
         return {"id": insert_rule(feed_id, payload)}
 
     @app.post("/feeds/{feed_id}/rules")
-    def create_rule_form(request: Request, feed_id: int, field: str = Form(...), operator: str = Form(...),
-                         value: str = Form(...), action: str = Form(...), _user: dict = Depends(require_admin)):
+    def create_rule_form(
+        request: Request, feed_id: int,
+        field: str = Form(..., pattern="^(title|content|author|category|all)$"),
+        operator: str = Form(..., pattern="^(contains|regex|equals)$"),
+        value: str = Form(..., min_length=1, max_length=1000),
+        action: str = Form(..., pattern="^(exclude|include)$"),
+        _user: dict = Depends(require_admin),
+    ):
         insert_rule(feed_id, RuleCreate(field=field, operator=operator, value=value, action=action))
         return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
     def remove_rule(rule_id: int) -> int:
         with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT feed_id FROM filter_rules WHERE id=?", (rule_id,)).fetchone()
             if not row:
                 raise HTTPException(404, "Regel nicht gefunden")
             conn.execute("DELETE FROM filter_rules WHERE id=?", (rule_id,))
             bump_config_revision(conn)
-        service.reapply_rules(row["feed_id"])
+            service.reapply_rules_in_transaction(conn, row["feed_id"])
         return row["feed_id"]
 
     @app.delete("/api/rules/{rule_id}", status_code=204)
@@ -458,18 +640,10 @@ def create_app(
 
     @app.get("/feed/{feed_id}.xml")
     def rss(feed_id: int, request: Request):
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        with database.connect() as conn:
-            feed = conn.execute("SELECT * FROM feeds WHERE id=?", (feed_id,)).fetchone()
-            if not feed:
-                raise HTTPException(404, "Feed nicht gefunden")
-            entries = conn.execute(
-                "SELECT * FROM entries WHERE feed_id=? AND hidden=0 AND published>=? "
-                "ORDER BY published DESC LIMIT 500", (feed_id, cutoff)
-            ).fetchall()
+        feed, entries = public_output(feed_id, 500)
         root = Element("rss", {"version": "2.0", "xmlns:atom": "http://www.w3.org/2005/Atom"})
         channel = SubElement(root, "channel")
-        display_name = feed["source_title"] or feed["name"]
+        display_name = feed["name"]
         SubElement(channel, "title").text = display_name
         SubElement(channel, "link").text = feed["source_url"]
         SubElement(channel, "description").text = f"Gefiltert durch FeedVanta: {display_name}"

@@ -11,6 +11,19 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def publication_timestamp(value: str | None) -> float | None:
+    """Compare ISO publication instants, including offsets and microseconds."""
+    if not value:
+        return None
+    try:
+        published = datetime.fromisoformat(value)
+        if published.tzinfo is None:
+            published = published.replace(tzinfo=timezone.utc)
+        return published.timestamp()
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 @dataclass(slots=True)
 class ContentEvaluator:
     """Extension point for a future local or hosted AI evaluator."""

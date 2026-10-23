@@ -1,12 +1,15 @@
 import sqlite3
 from pathlib import Path
 
+from .migrations.v001_split_sources_and_outputs import migrate
+from .models import publication_timestamp
+
+DATABASE_SCHEMA_VERSION = 1
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS feeds (
+CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
   source_url TEXT NOT NULL UNIQUE,
   enabled INTEGER NOT NULL DEFAULT 1,
   refresh_interval INTEGER NOT NULL DEFAULT 30 CHECK(refresh_interval >= 1),
@@ -16,6 +19,13 @@ CREATE TABLE IF NOT EXISTS feeds (
   icon_url TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS feeds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feeds_source ON feeds(source_id);
 CREATE TABLE IF NOT EXISTS filter_rules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
@@ -27,7 +37,7 @@ CREATE TABLE IF NOT EXISTS filter_rules (
 );
 CREATE TABLE IF NOT EXISTS entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   guid TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   url TEXT NOT NULL DEFAULT '',
@@ -36,10 +46,17 @@ CREATE TABLE IF NOT EXISTS entries (
   category TEXT NOT NULL DEFAULT '',
   published TEXT,
   fetched_at TEXT NOT NULL,
-  hidden INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(feed_id, guid)
+  UNIQUE(source_id, guid)
 );
-CREATE INDEX IF NOT EXISTS idx_entries_feed_visible ON entries(feed_id, hidden, published);
+CREATE INDEX IF NOT EXISTS idx_entries_source_published ON entries(source_id, published);
+CREATE TABLE IF NOT EXISTS feed_entry_visibility (
+  feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+  entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+  hidden INTEGER NOT NULL CHECK(hidden IN (0, 1)),
+  PRIMARY KEY(feed_id, entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_visibility_entry ON feed_entry_visibility(entry_id);
+CREATE INDEX IF NOT EXISTS idx_visibility_feed_hidden ON feed_entry_visibility(feed_id, hidden);
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   google_sub TEXT NOT NULL UNIQUE,
@@ -71,14 +88,30 @@ class Database:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.path, timeout=10)
         conn.row_factory = sqlite3.Row
+        conn.create_function("publication_timestamp", 1, publication_timestamp, deterministic=True)
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def initialize(self) -> None:
-        with self.connect() as conn:
-            conn.executescript(SCHEMA)
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(feeds)")}
-            if "source_title" not in columns:
-                conn.execute("ALTER TABLE feeds ADD COLUMN source_title TEXT")
-            if "icon_url" not in columns:
-                conn.execute("ALTER TABLE feeds ADD COLUMN icon_url TEXT")
+        conn = self.connect()
+        try:
+            # SQLite table rebuilds must not cascade deletes into extension
+            # tables referencing entries/feeds. This is connection-local and
+            # must be set before BEGIN; integrity is checked before commit.
+            conn.execute("PRAGMA foreign_keys = OFF")
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                version = conn.execute("PRAGMA user_version").fetchone()[0]
+                if version not in (0, DATABASE_SCHEMA_VERSION):
+                    raise RuntimeError(f"Unsupported database schema version {version}; restore a compatible backup")
+                if version == 0:
+                    try:
+                        migrate(conn, SCHEMA)
+                        if conn.execute("PRAGMA foreign_key_check").fetchall():
+                            raise RuntimeError("Database migration failed foreign key checks")
+                        conn.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+                    except sqlite3.Error as exc:
+                        raise RuntimeError(f"Database migration failed and was rolled back: {exc}; check the database or restore a backup") from exc
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.close()

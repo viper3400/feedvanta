@@ -1,5 +1,34 @@
 # Changes
 
+## Multiple outputs per source
+
+### Added
+
+- Sources now support multiple named output feeds with independent rules and
+  individual RSS/reader URLs, sharing downloaded articles and refresh state.
+- The overview groups outputs under their source, with shared settings, explicit
+  source deletion confirmation, output creation, and output renaming.
+- Added source management APIs and automatic transactional database migration;
+  existing output IDs, public URLs, rules, article data, and users are preserved.
+- Legacy upgrades preserve compatible download/digest and other extension tables,
+  including article references, and initialize missing authentication/configuration
+  tables from older installations. Incompatible layouts still abort safely.
+- Configuration imports accept legacy exports and convert them to the source/output
+  format. New exports use document-local source references.
+
+### Changed
+
+- Output names now determine RSS and reader titles. During database upgrade,
+  each existing effective title becomes its output name; later source title
+  changes no longer overwrite it.
+- Deleting an output keeps its source, shared articles, and sibling outputs.
+  Confirmed source deletion removes all of that source's outputs and articles.
+- Refresh intervals and manual refreshes affect all outputs of the same source.
+- Configuration replacement removes all existing sources, outputs, rules, and
+  cached articles and may change subscription URLs. Authentication data is kept.
+  Startup database upgrades do not themselves prune articles; normal seven-day
+  retention and the 24-hour publication window remain unchanged.
+
 ## 0.4.0
 
 ### Changed
