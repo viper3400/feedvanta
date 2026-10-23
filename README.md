@@ -28,7 +28,7 @@ Bei jedem neu gepushten Tag im Format `plugin-feedvanta-v<version>` führt `.git
 
 ```bash
 python -m pip install \
-  https://github.com/viper3400/feedvanta/releases/download/plugin-feedvanta-v0.4.0/feedvanta-0.4.0-py3-none-any.whl
+  https://github.com/viper3400/feedvanta/releases/download/plugin-feedvanta-v0.5.0/feedvanta-0.5.0-py3-none-any.whl
 ```
 
 Das Release-Asset ist ein herunterladbares Paket, kein Python-Paketindex. Für private Repositories benötigt der Build, der es installiert, GitHub-Zugangsdaten.
@@ -97,7 +97,7 @@ Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist fü
 
 FeedVanta unterscheidet vier unabhängige Versionen:
 
-- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.4.0`.
+- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.5.0`.
 - **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats, derzeit `2`. Schema `1` wird beim Import automatisch konvertiert; unbekannte Versionen werden abgelehnt.
 - **Datenbankschema-Version** (`PRAGMA user_version`): Struktur der SQLite-Datenbank, derzeit `1`; wird unabhängig vom JSON-Format beim Start migriert.
 - **Config-Version** (`config_version`): Revision der konkreten Konfiguration. Änderungen an Quellen, Ausgabe-Feeds oder Filterregeln erhöhen sie. Abrufe, Aufbewahrungsbereinigung und strukturelle Migrationen ändern sie nicht. Beim Import wird die Revision der importierten Konfiguration übernommen.
@@ -108,7 +108,7 @@ Das Exportformat enthält ausschließlich Quellen, Ausgabe-Feeds und Filterregel
 
 ```json
 {
-  "app_version": "0.4.0",
+  "app_version": "0.5.0",
   "schema_version": 2,
   "config_version": 12,
   "exported_at": "2026-09-26T10:00:00+00:00",

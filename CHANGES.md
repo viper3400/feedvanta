@@ -1,6 +1,6 @@
 # Changes
 
-## Multiple outputs per source
+## 0.5.0
 
 ### Added
 

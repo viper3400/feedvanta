@@ -1,10 +1,10 @@
 # Iteration 001: Multiple filtered outputs per source
 
-- Status: Implemented; release not assigned
+- Status: Implemented; assigned to 0.5.0
 - Planned: 2026-10-22
 - Scope: One iteration covering persistence, migrations, configuration, services,
   API, UI, tests, and documentation
-- Release: To be assigned when implemented
+- Release: 0.5.0
 
 ## Goal
 
@@ -346,11 +346,11 @@ original intent above; explain deviations here rather than silently rewriting
 the plan to match the implementation.
 
 - Implementation status: Implemented in the working tree on 2026-10-22.
-- Delivered release/date: No release assigned or published.
+- Delivered release/date: Assigned to 0.5.0 on 2026-10-23; not published by this task.
 - Related commit: `feat: support multiple filtered outputs per source` (2026-10-23).
   No pull request created by this task.
 - Final database/configuration versions: Database 1 / configuration 2. The
-  application release version is unchanged.
+  application release version is 0.5.0.
 - Persistence: `sources`, output `feeds`, source-owned `entries`, and
   `feed_entry_visibility(feed_id, entry_id, hidden)`. Output creation, rule changes,
   and visibility calculation share a write transaction; absent results are never
