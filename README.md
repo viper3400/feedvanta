@@ -6,6 +6,8 @@ In der Übersicht legt **Feed hinzufügen** eine neue Quelle mit ihrem ersten Au
 
 Abrufintervall, automatisches Laden, Originaltitel, Icon und Abruffehler gehören zur gemeinsamen Quelle. Manuelles Laden aktualisiert alle ihre Ausgabe-Feeds. Das Löschen eines Ausgabe-Feeds entfernt nur dessen Regeln und Sichtbarkeitsergebnisse; Quelle, Artikel und andere Ausgaben bleiben erhalten. Das ausdrücklich bestätigte Löschen einer Quelle entfernt hingegen alle ihre Ausgaben und Artikel. Quellen ohne Ausgaben bleiben verwaltbar und werden bei aktiviertem automatischem Laden weiter abgerufen.
 
+Über **Originalquelle untersuchen** in der Übersicht oder den Feed-Einstellungen können Administratoren die ursprünglichen RSS-/Atom-Felder als eingerücktes XML einsehen. Namensräume und eingebettetes HTML bleiben als Text sichtbar; der direkte Originalfeed ist separat verlinkt. Die Ansicht lädt die Quelle beim Öffnen neu, ohne Artikel oder Abrufstatus zu ändern. Der Abruf verwendet einen Timeout von zehn Sekunden und ist auf 2 MiB begrenzt; ungültiges XML, DTDs und mehr als 100 Verschachtelungsebenen werden mit einer Fehlermeldung abgewiesen.
+
 ## Start
 
 ```bash

@@ -17,7 +17,7 @@
 <section class="mb-6 rounded-2xl border border-white bg-white/90 p-5 shadow-md shadow-slate-200/40">
   <header class="mb-4 flex flex-wrap items-center gap-3">
     {% if source.icon_url %}<img src="{{ source.icon_url }}" alt="" width="44" height="44" class="rounded-xl object-contain">{% endif %}
-    <div><h2 class="text-lg font-semibold">{{ source.source_title or source.source_url }}</h2><a class="text-sm text-indigo-700" href="{{ source.source_url }}">Originalquelle ↗</a></div>
+    <div><h2 class="text-lg font-semibold">{{ source.source_title or source.source_url }}</h2><a class="text-sm text-indigo-700" href="{{ url_for('source_inspector', source_id=source.id) }}">Originalquelle untersuchen</a></div>
   </header>
   <p class="mb-3 text-sm text-slate-500">Gemeinsame Quelle für alle untenstehenden Feeds. Letzter Abruf: {{ source.last_fetched_at or 'noch nie' }}.</p>
   {% if source.last_error %}<p class="mb-3 rounded-xl bg-red-50 p-3 text-red-800">Letzter Fehler: {{ source.last_error }}</p>{% endif %}

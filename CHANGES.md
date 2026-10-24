@@ -4,6 +4,9 @@
 
 ### Added
 
+- Administrators can inspect original source XML with readable indentation and
+  preserved field names/namespaces. Inspection fetches fresh data without changing
+  stored articles or refresh state; embedded HTML is displayed as text.
 - Filter rules can be edited in the feed settings and through the API; saving
   immediately reapplies filters to the affected output without changing siblings.
 - Feed settings group filter rules and filtered entries into keyboard-accessible

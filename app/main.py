@@ -25,6 +25,7 @@ from .configuration import ConfigurationService, bump_config_revision, parse_doc
 from .db import Database
 from .models import utcnow
 from .services import FeedService, hidden_reasons
+from .source_inspection import inspect_source
 from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 
 BASE_DIR = Path(__file__).parent
@@ -265,6 +266,21 @@ def create_app(
             "app_version": APP_VERSION, "schema_version": CONFIG_SCHEMA_VERSION,
             "config_version": configuration_service.revision(),
         })
+
+    @app.get("/sources/{source_id}/inspect", response_class=HTMLResponse)
+    def source_inspector(request: Request, source_id: int, user: dict = Depends(require_admin)):
+        with database.connect() as conn:
+            source = conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+        if not source:
+            raise HTTPException(404, "Quelle nicht gefunden")
+        xml = error = None
+        try:
+            xml = inspect_source(source["source_url"])
+        except ValueError as exc:
+            error = str(exc)
+        return templates.TemplateResponse(request, "source_inspection.html", {
+            "source": dict(source), "current_user": user, "xml": xml, "error": error,
+        }, status_code=502 if error else 200, headers={"Cache-Control": "no-store"})
 
     @app.get("/feeds/{feed_id}", response_class=HTMLResponse)
     def feed_detail(request: Request, feed_id: int, user: dict = Depends(require_admin)):

@@ -8,7 +8,7 @@
 </header>
 <section class="mb-4 rounded-2xl bg-white/90 p-5 shadow-sm">
   <h2 class="mb-3 text-lg font-semibold">Ausgabe-Feed</h2>
-  <p class="mb-4 flex flex-wrap gap-3 text-sm text-indigo-700"><a href="{{ feed.source_url }}">Originalquelle ↗</a><a href="{{ url_for('reader', feed_id=feed.id) }}">Feed lesen</a><a href="{{ url_for('rss', feed_id=feed.id) }}">RSS-Ausgabe</a></p>
+  <p class="mb-4 flex flex-wrap gap-3 text-sm text-indigo-700"><a href="{{ url_for('source_inspector', source_id=feed.source_id) }}">Originalquelle untersuchen</a><a href="{{ url_for('reader', feed_id=feed.id) }}">Feed lesen</a><a href="{{ url_for('rss', feed_id=feed.id) }}">RSS-Ausgabe</a></p>
   <form class="mb-4 flex flex-wrap gap-3" method="post" action="{{ url_for('update_feed_name_form', feed_id=feed.id) }}"><label>Name <input class="rounded-lg border border-slate-200 px-3 py-2.5" name="name" value="{{ feed.name }}" required maxlength="200"></label><button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Namen speichern</button></form>
   <form method="post" action="{{ url_for('delete_feed_form', feed_id=feed.id) }}" onsubmit="return confirm('Nur diesen Ausgabe-Feed und seine Regeln löschen? Die Quelle und andere Feeds bleiben erhalten.')"><button class="rounded-lg border border-red-200 px-3 py-2 text-red-700">Feed löschen</button></form>
 </section>
