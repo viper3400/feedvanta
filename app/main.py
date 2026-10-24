@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlparse
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -23,6 +24,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .auth import AuthService, GLOBAL_ADMINISTRATION
 from .configuration import ConfigurationService, bump_config_revision, parse_document
 from .db import Database
+from .fields import RuleField, field_catalog, field_label
 from .models import utcnow
 from .services import FeedService, hidden_reasons
 from .source_inspection import inspect_source
@@ -114,7 +116,7 @@ class FeedUpdate(BaseModel):
 
 FEED_SELECT = (
     "SELECT f.*, s.source_url, s.enabled, s.refresh_interval, s.last_fetched_at, "
-    "s.last_error, s.source_title, s.icon_url FROM feeds f JOIN sources s ON s.id=f.source_id"
+    "s.last_error, s.source_title, s.icon_url, s.field_extraction_error FROM feeds f JOIN sources s ON s.id=f.source_id"
 )
 
 
@@ -123,7 +125,7 @@ class RefreshIntervalUpdate(BaseModel):
 
 
 class RuleCreate(BaseModel):
-    field: str = Field(pattern="^(title|content|author|category|all)$")
+    field: RuleField
     operator: str = Field(pattern="^(contains|regex|equals)$")
     value: str = Field(min_length=1, max_length=1000)
     action: str = Field(default="exclude", pattern="^(exclude|include)$")
@@ -190,6 +192,7 @@ def create_app(
         return route_url(context["request"], endpoint, **params)
 
     templates.env.globals["url_for"] = template_url_for
+    templates.env.globals["field_label"] = field_label
     oauth = OAuth()
     google_client_id = os.getenv("GOOGLE_CLIENT_ID")
     google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -288,6 +291,7 @@ def create_app(
         if not feed:
             raise HTTPException(404, "Feed nicht gefunden")
         with database.connect() as conn:
+            fields = field_catalog(conn, feed["source_id"], (rule["field"] for rule in feed["rules"]))
             hidden_entries = [dict(row) for row in conn.execute(
                 "SELECT e.* FROM entries e JOIN feed_entry_visibility v ON v.entry_id=e.id "
                 "WHERE v.feed_id=? AND v.hidden=1 ORDER BY e.fetched_at DESC LIMIT 100", (feed_id,)
@@ -297,7 +301,18 @@ def create_app(
         return templates.TemplateResponse(request, "feed_detail.html", {
             "feed": feed, "current_user": user, "hidden_entries": hidden_entries,
             "hidden_entries_truncated": feed["hidden_count"] > len(hidden_entries),
+            "fields": fields,
         })
+
+    @app.get("/api/sources/{source_id}/fields")
+    def source_field_catalog(source_id: int, _user: dict = Depends(require_admin)):
+        with database.connect() as conn:
+            conn.execute("BEGIN")
+            source = conn.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+            if not source:
+                raise HTTPException(404, "Quelle nicht gefunden")
+            return {"fields": field_catalog(conn, source_id),
+                    "extraction_error": source["field_extraction_error"]}
 
     @app.get("/admin/users", response_class=HTMLResponse)
     def users_admin(request: Request, user: dict = Depends(require_admin)):
@@ -598,7 +613,7 @@ def create_app(
     @app.post("/feeds/{feed_id}/rules")
     def create_rule_form(
         request: Request, feed_id: int,
-        field: str = Form(..., pattern="^(title|content|author|category|all)$"),
+        field: Annotated[RuleField, Form()],
         operator: str = Form(..., pattern="^(contains|regex|equals)$"),
         value: str = Form(..., min_length=1, max_length=1000),
         action: str = Form(..., pattern="^(exclude|include)$"),
@@ -630,7 +645,7 @@ def create_app(
     @app.post("/rules/{rule_id}/edit")
     def update_rule_form(
         request: Request, rule_id: int,
-        field: str = Form(..., pattern="^(title|content|author|category|all)$"),
+        field: Annotated[RuleField, Form()],
         operator: str = Form(..., pattern="^(contains|regex|equals)$"),
         value: str = Form(..., min_length=1, max_length=1000),
         action: str = Form(..., pattern="^(exclude|include)$"),

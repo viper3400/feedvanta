@@ -8,6 +8,20 @@ Abrufintervall, automatisches Laden, Originaltitel, Icon und Abruffehler gehöre
 
 Über **Originalquelle untersuchen** in der Übersicht oder den Feed-Einstellungen können Administratoren die ursprünglichen RSS-/Atom-Felder als eingerücktes XML einsehen. Namensräume und eingebettetes HTML bleiben als Text sichtbar; der direkte Originalfeed ist separat verlinkt. Die Ansicht lädt die Quelle beim Öffnen neu, ohne Artikel oder Abrufstatus zu ändern. Der Abruf verwendet einen Timeout von zehn Sekunden und ist auf 2 MiB begrenzt; ungültiges XML, DTDs und mehr als 100 Verschachtelungsebenen werden mit einer Fehlermeldung abgewiesen.
 
+### Regeln für Originalfelder
+
+Die Feldauswahl in den Feed-Einstellungen trennt **Normalisierte Felder** von **Originalfeldern der Quelle**. Nach einem erfolgreichen Abruf erscheinen dort direkte Unterelemente der RSS-Artikel bzw. Atom-Einträge mit nichtleerem Text. Beispielsweise lässt sich `<authors>hans dampf, Gaby Mueller, Redaktion</authors>` über **authors → enthält → Redaktion → ausschließen** filtern. Das normalisierte Feld **Autor** bleibt unverändert; **alles** durchsucht weiterhin nur Titel, Inhalt, Autor und Kategorie.
+
+Originalfelder werden durch Namensraum-URI und lokalen XML-Namen identifiziert, nicht durch den wechselbaren Präfix. In API und Konfiguration lautet die kanonische Kennung beispielsweise `xml:["","authors"]` oder `xml:["urn:editorial","authors"]`. Lokale Namen sind groß-/kleinschreibungsabhängig; Textvergleiche bleiben unabhängig von Groß-/Kleinschreibung. Die Oberfläche zeigt den Namensraum zur Unterscheidung gleichnamiger Felder an.
+
+Pro Element wird der Text aller Nachfahren in Dokumentreihenfolge zusammengeführt, ohne zusätzliche Trennzeichen. Äußerer Leerraum wird entfernt, innerer Leerraum bleibt erhalten. CDATA und XML-kodiertes HTML werden als Text behandelt. Wiederholte Elemente bleiben separate Werte; es genügt, wenn einer davon die Regel erfüllt. **entspricht** vergleicht einen einzelnen Wert, nicht eine Verkettung. Attribute und verschachtelte Feldpfade stehen nicht zur Auswahl.
+
+Fehlende oder leere Originalfelder treffen keine Regel, auch keine Regex für leere Zeichenfolgen. Eine Einschlussregel für ein fehlendes Feld kann den Artikel deshalb ausblenden. Regeln für derzeit nicht verfügbare Felder bleiben erhalten und bearbeitbar. Der Katalog basiert auf allen gespeicherten Artikeln dieser Quelle, nicht nur auf der letzten Antwort. Er wird nicht zwischen verschiedenen Quellen geteilt.
+
+Das Upgrade erhält bestehende Artikel und Regeln. Alte Artikel haben zunächst keine Originalfeldwerte; sie erhalten diese erst, wenn sie in einer späteren Quellantwort erneut vorkommen. Aktualisierte Artikel ersetzen ihre alten Originalfeldwerte vollständig. Die übliche Aufbewahrung von sieben Tagen entfernt auch diese Werte; Regeln bleiben bestehen. Neue Ausgaben und Regeländerungen verwenden bereits gespeicherte Werte ohne zusätzlichen Abruf. Generierte RSS-Ausgaben übernehmen keine beliebigen Originalfelder.
+
+Für Quellabrufe gelten maximal 5 MiB Antwortgröße, 100 XML-Ebenen, 5000 Einträge, 256 direkte Feldelemente pro Eintrag, 256 KiB extrahierter UTF-8-Text pro Eintrag und 8 MiB insgesamt. Größenüberschreitungen sowie DTD-/Entitätsdefinitionen brechen den Abruf ohne Artikeländerungen ab; der Abruffehler wird angezeigt. XML-Fehler behalten die bisherige tolerante Feed-Verarbeitung bei, stellen für diesen Abruf aber keine Originalfeldwerte bereit. Oberfläche und Feld-API melden dies ausdrücklich. Externe XML-Entitäten werden niemals geladen.
+
 ## Start
 
 ```bash
@@ -99,9 +113,9 @@ Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist fü
 
 FeedVanta unterscheidet vier unabhängige Versionen:
 
-- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.5.0`.
-- **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats, derzeit `2`. Schema `1` wird beim Import automatisch konvertiert; unbekannte Versionen werden abgelehnt.
-- **Datenbankschema-Version** (`PRAGMA user_version`): Struktur der SQLite-Datenbank, derzeit `1`; wird unabhängig vom JSON-Format beim Start migriert.
+- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.6.0`.
+- **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats, derzeit `3`. Schema `1` und `2` werden beim Import automatisch konvertiert; unbekannte Versionen werden abgelehnt. Schema-3-Exporte können nicht in ältere Anwendungen importiert werden.
+- **Datenbankschema-Version** (`PRAGMA user_version`): Struktur der SQLite-Datenbank, derzeit `2`; wird unabhängig vom JSON-Format beim Start migriert.
 - **Config-Version** (`config_version`): Revision der konkreten Konfiguration. Änderungen an Quellen, Ausgabe-Feeds oder Filterregeln erhöhen sie. Abrufe, Aufbewahrungsbereinigung und strukturelle Migrationen ändern sie nicht. Beim Import wird die Revision der importierten Konfiguration übernommen.
 
 Globale Administratoren erreichen Import und Export über **Konfiguration** in der Weboberfläche. Alternativ stehen die geschützten Endpunkte `GET /api/config/export` und `POST /api/config/import` zur Verfügung. Ein Import ersetzt Quellen, Ausgabe-Feeds und Regeln vollständig und löscht heruntergeladene Artikel. Dabei können sich Abonnement-URLs ändern. Benutzer und Berechtigungen bleiben erhalten. Validierung und Konvertierung geschehen vor der atomaren Ersetzung; ungültige Importe ändern keine Daten.
@@ -110,8 +124,8 @@ Das Exportformat enthält ausschließlich Quellen, Ausgabe-Feeds und Filterregel
 
 ```json
 {
-  "app_version": "0.5.0",
-  "schema_version": 2,
+  "app_version": "0.6.0",
+  "schema_version": 3,
   "config_version": 12,
   "exported_at": "2026-09-26T10:00:00+00:00",
   "sources": [
@@ -141,7 +155,7 @@ Das Exportformat enthält ausschließlich Quellen, Ausgabe-Feeds und Filterregel
 }
 ```
 
-Benutzer, Berechtigungen, OAuth-Daten, Sitzungen, heruntergeladene Artikel sowie abgeleitete Feed-Metadaten werden niemals mitexportiert.
+Benutzer, Berechtigungen, OAuth-Daten, Sitzungen, heruntergeladene Artikel sowie abgeleitete Feed-Metadaten werden niemals mitexportiert. Auch Originalfeldwerte und der erkannte Feldkatalog sind Laufzeitdaten und nicht enthalten. Regeln dürfen gültige XML-Feldkennungen referenzieren, die nach einem Import noch nicht erkannt wurden. Schema 1 und 2 akzeptieren weiterhin ausschließlich ihre historischen normalisierten Regelfelder; Originalfeldregeln erfordern Schema 3.
 
 ### Datenbank-Upgrade und Sicherung
 
@@ -152,6 +166,8 @@ Beim Start wird eine erkannte bisherige, unversionierte Datenbank transaktional 
 Migrationen laufen vor Abrufen und normaler Aufbewahrungsbereinigung; sie löschen selbst keine Artikel. Zusätzliche kompatible Tabellen früherer Funktionen (etwa Downloads und Themen-Digests) samt Daten, Indizes und Artikelreferenzen bleiben erhalten. Fehlende Benutzer-, Berechtigungs- und Konfigurationstabellen älterer Installationen werden angelegt; eine bisher nicht vorhandene Config-Revision beginnt bei 1. Unbekannte Kernlayouts, Namenskonflikte, inkompatible Fremdschlüssel und neuere Schema-Versionen werden abgelehnt. Bei einem Fehler werden Änderungen zurückgerollt und der Start abgebrochen. Ein weiterer Start führt erfolgreiche Migrationen nicht erneut aus. Ein Downgrade erfordert das Wiederherstellen der Sicherung mit der dazu passenden alten Anwendung; eine Rückwärtsmigration wird nicht angeboten.
 
 Die JSON-Konfiguration muss nicht beim Start separat migriert werden: Sie wird nur bei einem Import eingelesen. Historie und Entscheidungen dieser Änderung stehen in [Iteration 001](docs/iterations/001-multiple-output-feeds.md).
+
+Das Upgrade von Datenbankschema 1 auf 2 ergänzt Originalfeldwerte und erweitert die Regelfeld-Auswahl transaktional. Regel-IDs, Sichtbarkeitsergebnisse, Artikel und Config-Revision bleiben erhalten; kompatible Indizes, Trigger und Referenzen auf Filterregeln werden bewahrt. Unversionierte Datenbanken durchlaufen zuerst Migration 1, anschließend Migration 2. Details stehen in [Iteration 002](docs/iterations/002-custom-source-fields.md).
 
 ## Video-Downloads
 
@@ -198,6 +214,7 @@ Quellen werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft, 
 - `PATCH /feedvanta/api/feeds/{id}/refresh-interval` – gemeinsames Abrufintervall mit `refresh_interval` ändern
 - `DELETE /feedvanta/api/feeds/{id}` – nur Ausgabe und ihre Regeln löschen; Quelle und Artikel behalten
 - `GET /feedvanta/api/sources` – Quellen samt ihren Ausgaben auflisten
+- `GET /feedvanta/api/sources/{id}/fields` – geschützter Feldkatalog als `fields`-Liste mit `id`, `label`, `kind`, `namespace`, `local_name` und `available`; `extraction_error` meldet fehlgeschlagene Originalfeld-Erkennung. Der Katalog enthält normalisierte Felder und verfügbare Originalfelder dieser Quelle, nicht unverfügbare Regelreferenzen.
 - `POST /feedvanta/api/sources` – neue Quelle samt erster Ausgabe mit `name`, `source_url` und optionalem `refresh_interval` erstellen; Antwort enthält `id` (Quelle) und `feed_id` (Ausgabe)
 - `PATCH /feedvanta/api/sources/{id}` – `enabled` und/oder `refresh_interval` ändern
 - `POST /feedvanta/api/sources/{id}/refresh` – Quelle sofort abrufen

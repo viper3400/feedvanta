@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "field_options.html" import field_options %}
 {% block title %}{{ feed.name }} – FeedVanta{% endblock %}
 {% block content %}
 <p class="mb-5"><a class="text-sm font-medium text-indigo-700" href="{{ url_for('index') }}">← Alle Feeds und Quellen</a></p>
@@ -16,6 +17,7 @@
   <h2 class="mb-2 text-lg font-semibold">Gemeinsame Quelle</h2>
   <p class="mb-3 text-sm text-slate-500">{{ feed.source_title or feed.source_url }}. Abrufintervall und manuelles Laden gelten für alle Feeds dieser Quelle. Weitere Quelleneinstellungen stehen in der Übersicht. Änderungen gelten spätestens beim nächsten Lauf (innerhalb einer Minute).</p>
   {% if feed.last_error %}<p class="mb-3 bg-red-50 p-3 text-red-800">Letzter Fehler: {{ feed.last_error }}</p>{% endif %}
+  {% if feed.field_extraction_error %}<p class="mb-3 bg-red-50 p-3 text-red-800">{{ feed.field_extraction_error }}</p>{% endif %}
   <form class="mb-3 flex flex-wrap items-end gap-3" method="post" action="{{ url_for('update_refresh_interval_form', feed_id=feed.id) }}"><label class="text-sm">Abrufintervall (Min.) <input class="w-24 rounded-lg border border-slate-200 px-3 py-2.5" type="number" name="refresh_interval" value="{{ feed.refresh_interval }}" min="1" max="10080" required></label><button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Quelle speichern</button></form>
   <form method="post" action="{{ url_for('refresh_form', feed_id=feed.id) }}"><button class="rounded-lg bg-slate-100 px-3 py-2">Alle Feeds jetzt laden</button></form>
 </section>
@@ -27,14 +29,15 @@
   <section id="rules-panel" aria-labelledby="rules-tab">
   <h2 class="mb-3 text-lg font-semibold">Filterregeln</h2>
   <p class="mb-3 text-sm text-slate-500">Diese Regeln gelten unabhängig von allen anderen Ausgabe-Feeds.</p>
+  <p class="mb-3 text-sm text-slate-500">Originalfelder werden beim Abruf aus den Einträgen dieser Quelle erkannt. Bestehende Artikel erhalten diese Werte erst, wenn sie erneut abgerufen werden. Fehlende oder leere Originalfelder treffen keine Regel; eine Einschlussregel kann solche Artikel deshalb ausblenden. „alles“ durchsucht weiterhin nur die normalisierten Felder Titel, Inhalt, Autor und Kategorie.</p>
   {% for rule in feed.rules %}
   <div class="mb-2 rounded-xl bg-slate-50 p-3">
-    <div class="flex items-center justify-between gap-3"><span class="text-sm"><strong>{{ rule.action }}</strong> · {{ rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="text-red-700" aria-label="Regel löschen">×</button></form></div>
+    <div class="flex items-center justify-between gap-3"><span class="text-sm"><strong>{{ rule.action }}</strong> · {{ field_label(rule.field) if rule.field.startswith('xml:') else rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="text-red-700" aria-label="Regel löschen">×</button></form></div>
     <details>
       <summary class="text-sm text-indigo-700">Regel bearbeiten</summary>
       <form class="flex flex-wrap gap-2" method="post" action="{{ url_for('update_rule_form', rule_id=rule.id) }}">
         <label>Aktion <select class="rounded-lg border border-slate-200 p-3" name="action">{% for value, label in [('exclude', 'ausschließen'), ('include', 'einschließen')] %}<option value="{{ value }}"{% if rule.action == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-        <label>Feld <select class="rounded-lg border border-slate-200 p-3" name="field">{% for value, label in [('all', 'alles'), ('title', 'Titel'), ('content', 'Inhalt'), ('author', 'Autor'), ('category', 'Kategorie')] %}<option value="{{ value }}"{% if rule.field == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Feld <select class="rounded-lg border border-slate-200 p-3" name="field">{{ field_options(fields, rule.field) }}</select></label>
         <label>Operator <select class="rounded-lg border border-slate-200 p-3" name="operator">{% for value, label in [('contains', 'enthält'), ('regex', 'Regex'), ('equals', 'entspricht')] %}<option value="{{ value }}"{% if rule.operator == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
         <label>Filterwert <input class="rounded-lg border border-slate-200 p-3" name="value" value="{{ rule.value }}" required maxlength="1000"></label>
         <button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Regel speichern</button>
@@ -44,7 +47,7 @@
   {% else %}<p class="mb-3 text-sm text-slate-500">Noch keine Filterregeln.</p>{% endfor %}
   <form class="flex flex-wrap gap-2" method="post" action="{{ url_for('create_rule_form', feed_id=feed.id) }}">
     <select class="rounded-lg border border-slate-200 p-3" name="action"><option value="exclude">ausschließen</option><option value="include">einschließen</option></select>
-    <select class="rounded-lg border border-slate-200 p-3" name="field"><option value="all">alles</option><option value="title">Titel</option><option value="content">Inhalt</option><option value="author">Autor</option><option value="category">Kategorie</option></select>
+    <select class="rounded-lg border border-slate-200 p-3" name="field" aria-label="Feld">{{ field_options(fields) }}</select>
     <select class="rounded-lg border border-slate-200 p-3" name="operator"><option value="contains">enthält</option><option value="regex">Regex</option><option value="equals">entspricht</option></select>
     <input class="min-w-48 flex-1 rounded-lg border border-slate-200 p-3" name="value" required maxlength="1000" placeholder="Filterwert"><button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Regel hinzufügen</button>
   </form>

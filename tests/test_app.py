@@ -323,8 +323,8 @@ def test_versioned_config_export_import_roundtrip(tmp_path: Path):
         assert exported_response.status_code == 200
         assert "attachment;" in exported_response.headers["content-disposition"]
         exported = exported_response.json()
-        assert exported["app_version"] == "0.5.0"
-        assert exported["schema_version"] == 2
+        assert exported["app_version"] == "0.6.0"
+        assert exported["schema_version"] == 3
         assert exported["config_version"] == 3
         assert exported["feeds"][0]["rules"][0]["value"] == "Sport"
         assert "users" not in exported

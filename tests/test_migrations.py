@@ -61,7 +61,7 @@ def test_legacy_migration_preserves_data_and_matches_fresh_schema(tmp_path, titl
     db = Database(str(path))
     db.initialize()
     with db.connect() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         assert not conn.execute("PRAGMA foreign_key_check").fetchall()
         source = dict(conn.execute("SELECT * FROM sources WHERE id=7").fetchone())
         assert source["source_url"] == "https://example.com/feed"
@@ -74,7 +74,7 @@ def test_legacy_migration_preserves_data_and_matches_fresh_schema(tmp_path, titl
         assert feed["source_id"] == 7
         assert feed["name"] == ("Original title" if title else "Custom")
         assert feed["created_at"] == "created"
-        assert [tuple(row) for row in conn.execute("SELECT * FROM entries ORDER BY id")] == [row[:-1] for row in old_entries]
+        assert [tuple(row) for row in conn.execute("SELECT * FROM entries ORDER BY id")] == [row[:-1] + ("{}",) for row in old_entries]
         assert [tuple(row) for row in conn.execute("SELECT * FROM feed_entry_visibility ORDER BY entry_id")] == [(7, 10, 0), (7, 11, 1)]
         assert conn.execute("SELECT value FROM filter_rules WHERE id=5").fetchone()[0] == "11"
         assert conn.execute("SELECT email FROM users WHERE id=3").fetchone()[0] == "admin@example.com"

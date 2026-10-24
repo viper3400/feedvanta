@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -7,10 +8,10 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
-import feedparser
-
 from .db import Database
+from .fields import field_label
 from .models import utcnow
+from .source_fields import MAX_FEED_BYTES, parse_source
 
 ENTRY_RETENTION = timedelta(days=7)
 
@@ -28,14 +29,20 @@ def _entry_text(entry: dict, field: str) -> str:
 
 
 def rule_matches(entry: dict, rule: dict) -> bool:
-    text = _entry_text(entry, rule["field"])
+    if rule["field"].startswith("xml:"):
+        fields = entry.get("custom_fields", {})
+        if isinstance(fields, str):
+            fields = json.loads(fields)
+        texts = [text for text in fields.get(rule["field"], []) if text]
+    else:
+        texts = [_entry_text(entry, rule["field"])]
     value = rule["value"]
     if rule["operator"] == "contains":
-        return value.casefold() in text.casefold()
+        return any(value.casefold() in text.casefold() for text in texts)
     if rule["operator"] == "equals":
-        return value.casefold() == text.casefold()
+        return any(value.casefold() == text.casefold() for text in texts)
     try:
-        return re.search(value, text, re.IGNORECASE) is not None
+        return any(re.search(value, text, re.IGNORECASE) is not None for text in texts)
     except re.error:
         return False
 
@@ -49,13 +56,18 @@ def is_hidden(entry: dict, rules: list[dict]) -> bool:
     return bool(includes) and not any(rule_matches(entry, r) for r in includes)
 
 
+def _rule_description(rule: dict) -> str:
+    field = field_label(rule["field"]) if rule["field"].startswith("xml:") else rule["field"]
+    return f"{field} {rule['operator']} „{rule['value']}“"
+
+
 def hidden_reasons(entry: dict, rules: list[dict]) -> list[str]:
     active = [rule for rule in rules if rule["enabled"]]
     excludes = [rule for rule in active if rule["action"] == "exclude"]
     matched_excludes = [rule for rule in excludes if rule_matches(entry, rule)]
     if matched_excludes:
         return [
-            f"Ausschlussregel: {rule['field']} {rule['operator']} „{rule['value']}“"
+            f"Ausschlussregel: {_rule_description(rule)}"
             for rule in matched_excludes
         ]
 
@@ -63,10 +75,7 @@ def hidden_reasons(entry: dict, rules: list[dict]) -> list[str]:
     if includes and not any(rule_matches(entry, rule) for rule in includes):
         return [
             "Keine aktive Einschlussregel trifft zu: "
-            + "; ".join(
-                f"{rule['field']} {rule['operator']} „{rule['value']}“"
-                for rule in includes
-            )
+            + "; ".join(_rule_description(rule) for rule in includes)
         ]
     return []
 
@@ -162,7 +171,8 @@ class FeedService:
         try:
             request = Request(source["source_url"], headers={"User-Agent": "FeedVanta/0.1"})
             with urlopen(request, timeout=20) as response:
-                parsed = feedparser.parse(response.read())
+                data = response.read(MAX_FEED_BYTES + 1)
+            parsed, original_fields, marker, extraction_error = parse_source(data)
             if getattr(parsed, "bozo", False) and not parsed.entries:
                 raise ValueError(str(parsed.bozo_exception))
             source_title, icon_url = feed_metadata(parsed, source["source_url"])
@@ -176,21 +186,24 @@ class FeedService:
                     entry = normalize_entry(raw)
                     conn.execute("""
                         INSERT INTO entries
-                          (source_id,guid,title,url,content,author,category,published,fetched_at)
-                        VALUES (?,?,?,?,?,?,?,?,?)
+                          (source_id,guid,title,url,content,author,category,published,fetched_at,custom_fields)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(source_id,guid) DO UPDATE SET
                           title=excluded.title,url=excluded.url,content=excluded.content,
                           author=excluded.author,category=excluded.category,
-                          published=excluded.published,fetched_at=excluded.fetched_at
+                          published=excluded.published,fetched_at=excluded.fetched_at,
+                          custom_fields=excluded.custom_fields
                     """, (source_id, entry["guid"], entry["title"], entry["url"],
                           entry["content"], entry["author"], entry["category"],
-                          entry["published"], now))
+                          entry["published"], now,
+                          json.dumps(original_fields.get(raw.get(marker), {}), ensure_ascii=False)))
                 for output in conn.execute("SELECT id FROM feeds WHERE source_id=?", (source_id,)).fetchall():
                     self.reapply_rules_in_transaction(conn, output["id"])
                 conn.execute(
                     "UPDATE sources SET last_fetched_at=?, last_error=NULL, "
-                    "source_title=COALESCE(?,source_title), icon_url=COALESCE(?,icon_url) WHERE id=?",
-                    (now, source_title, icon_url, source_id),
+                    "source_title=COALESCE(?,source_title), icon_url=COALESCE(?,icon_url), "
+                    "field_extraction_error=? WHERE id=?",
+                    (now, source_title, icon_url, extraction_error, source_id),
                 )
             return len(parsed.entries)
         except Exception as exc:
@@ -213,10 +226,12 @@ class FeedService:
         )]
         entries = conn.execute("SELECT * FROM entries WHERE source_id=?", (feed["source_id"],)).fetchall()
         for row in entries:
+            entry = dict(row)
+            entry["custom_fields"] = json.loads(entry["custom_fields"])
             conn.execute(
                 "INSERT INTO feed_entry_visibility(feed_id,entry_id,hidden) VALUES(?,?,?) "
                 "ON CONFLICT(feed_id,entry_id) DO UPDATE SET hidden=excluded.hidden",
-                (feed_id, row["id"], int(is_hidden(dict(row), rules))),
+                (feed_id, row["id"], int(is_hidden(entry, rules))),
             )
 
     def prune_expired_entries(self) -> None:

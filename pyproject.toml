@@ -1,6 +1,6 @@
 [project]
 name = "feedvanta"
-version = "0.5.0"
+version = "0.6.0"
 description = "Small RSS/Atom filter server for feed readers"
 readme = "README.md"
 requires-python = ">=3.13"

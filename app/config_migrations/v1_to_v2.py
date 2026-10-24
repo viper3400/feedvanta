@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
-from ..configuration import ConfigRule
+from .v2_to_v3 import LegacyRule
 
 
 class LegacyFeed(BaseModel):
@@ -12,7 +12,7 @@ class LegacyFeed(BaseModel):
     source_url: HttpUrl
     enabled: bool = True
     refresh_interval: int = Field(ge=1, le=10080)
-    rules: list[ConfigRule] = Field(default_factory=list)
+    rules: list[LegacyRule] = Field(default_factory=list)
 
 
 class LegacyDocument(BaseModel):

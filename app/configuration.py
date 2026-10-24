@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from .db import Database
+from .fields import RuleField
 from .models import utcnow
 from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 
@@ -12,7 +13,7 @@ from .version import APP_VERSION, CONFIG_SCHEMA_VERSION
 class ConfigRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    field: Literal["title", "content", "author", "category", "all"]
+    field: RuleField
     operator: Literal["contains", "regex", "equals"]
     value: str = Field(min_length=1, max_length=1000)
     action: Literal["exclude", "include"]
@@ -40,7 +41,7 @@ class ConfigDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     app_version: str = Field(min_length=1)
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     config_version: int = Field(ge=1)
     exported_at: str | None = None
     sources: list[ConfigSource]
@@ -63,10 +64,14 @@ def parse_document(payload: dict) -> ConfigDocument:
     if not isinstance(payload, dict):
         raise ValueError("Konfiguration muss ein JSON-Objekt sein")
     version = payload.get("schema_version")
-    if type(version) is not int or version not in (1, CONFIG_SCHEMA_VERSION):
-        raise ValueError(f"Schema-Version {version} ist nicht kompatibel; unterstützt werden Versionen 1 und 2")
+    if type(version) is not int or version not in (1, 2, CONFIG_SCHEMA_VERSION):
+        raise ValueError(f"Schema-Version {version} ist nicht kompatibel; unterstützt werden Versionen 1, 2 und 3")
     if version == 1:
         from .config_migrations.v1_to_v2 import migrate
+
+        payload = migrate(payload)
+    if version in (1, 2):
+        from .config_migrations.v2_to_v3 import migrate
 
         payload = migrate(payload)
     return ConfigDocument.model_validate(payload)

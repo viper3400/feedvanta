@@ -2,11 +2,12 @@ import sqlite3
 from pathlib import Path
 
 from .migrations.v001_split_sources_and_outputs import migrate
+from .migrations.v002_custom_source_fields import migrate as migrate_v2
 from .models import publication_timestamp
 
-DATABASE_SCHEMA_VERSION = 1
+DATABASE_SCHEMA_VERSION = 2
 
-SCHEMA = """
+SCHEMA_V1 = """
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +80,21 @@ CREATE TABLE IF NOT EXISTS config_state (
 INSERT OR IGNORE INTO config_state(id, revision) VALUES(1, 1);
 """
 
+# Keep the migration-1 target frozen; later upgrades must start from its actual
+# schema rather than silently creating current tables under an old version.
+SCHEMA = (
+    SCHEMA_V1.replace(
+        "CHECK(field IN ('title','content','author','category','all'))",
+        "CHECK(field IN ('title','content','author','category','all') OR substr(field,1,5)='xml:[')",
+    ).replace(
+        "  UNIQUE(source_id, guid)",
+        "  custom_fields TEXT NOT NULL DEFAULT '{}',\n  UNIQUE(source_id, guid)",
+    ).replace(
+        "  created_at TEXT NOT NULL\n);\nCREATE TABLE IF NOT EXISTS feeds",
+        "  created_at TEXT NOT NULL,\n  field_extraction_error TEXT\n);\nCREATE TABLE IF NOT EXISTS feeds",
+    )
+)
+
 
 class Database:
     def __init__(self, path: str):
@@ -102,16 +118,20 @@ class Database:
             with conn:
                 conn.execute("BEGIN IMMEDIATE")
                 version = conn.execute("PRAGMA user_version").fetchone()[0]
-                if version not in (0, DATABASE_SCHEMA_VERSION):
+                if version not in (0, 1, DATABASE_SCHEMA_VERSION):
                     raise RuntimeError(f"Unsupported database schema version {version}; restore a compatible backup")
-                if version == 0:
-                    try:
-                        migrate(conn, SCHEMA)
-                        if conn.execute("PRAGMA foreign_key_check").fetchall():
-                            raise RuntimeError("Database migration failed foreign key checks")
-                        conn.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
-                    except sqlite3.Error as exc:
-                        raise RuntimeError(f"Database migration failed and was rolled back: {exc}; check the database or restore a backup") from exc
+                try:
+                    if version == 0:
+                        migrate(conn, SCHEMA_V1)
+                        conn.execute("PRAGMA user_version = 1")
+                        version = 1
+                    if version == 1:
+                        migrate_v2(conn, SCHEMA)
+                        conn.execute("PRAGMA user_version = 2")
+                    if conn.execute("PRAGMA foreign_key_check").fetchall():
+                        raise RuntimeError("Database migration failed foreign key checks")
+                except sqlite3.Error as exc:
+                    raise RuntimeError(f"Database migration failed and was rolled back: {exc}; check the database or restore a backup") from exc
         finally:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.close()

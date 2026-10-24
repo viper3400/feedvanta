@@ -21,6 +21,7 @@
   </header>
   <p class="mb-3 text-sm text-slate-500">Gemeinsame Quelle für alle untenstehenden Feeds. Letzter Abruf: {{ source.last_fetched_at or 'noch nie' }}.</p>
   {% if source.last_error %}<p class="mb-3 rounded-xl bg-red-50 p-3 text-red-800">Letzter Fehler: {{ source.last_error }}</p>{% endif %}
+  {% if source.field_extraction_error %}<p class="mb-3 rounded-xl bg-red-50 p-3 text-red-800">{{ source.field_extraction_error }}</p>{% endif %}
   <form class="mb-3 flex flex-wrap items-end gap-3" method="post" action="{{ url_for('update_source_form', source_id=source.id) }}">
     <label class="text-sm">Abrufintervall (Min.) <input class="w-24 rounded-lg border border-slate-200 px-3 py-2.5" type="number" name="refresh_interval" value="{{ source.refresh_interval }}" min="1" max="10080" required></label>
     <label class="text-sm"><input type="checkbox" name="enabled" value="true" {% if source.enabled %}checked{% endif %}> Automatisch laden</label>

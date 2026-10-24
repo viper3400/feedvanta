@@ -1,0 +1,8 @@
+{% macro field_options(fields, selected='all') -%}
+<optgroup label="Normalisierte Felder">
+{% for field in fields if field.kind == 'normalized' %}<option value="{{ field.id }}"{% if field.id == selected %} selected{% endif %}>{{ field.label }}</option>{% endfor %}
+</optgroup>
+<optgroup label="Originalfelder der Quelle">
+{% for field in fields if field.kind == 'xml' %}<option value="{{ field.id }}"{% if field.id == selected %} selected{% endif %}>{{ field.label }}{% if not field.available %} — derzeit nicht verfügbar{% endif %}</option>{% endfor %}
+</optgroup>
+{%- endmacro %}

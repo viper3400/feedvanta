@@ -4,6 +4,11 @@
 
 ### Added
 
+- Rules can target original RSS/Atom entry fields, including custom elements such
+  as `authors`, with namespace-aware selection and per-occurrence matching.
+  Existing normalized fields and the meaning of `all` remain unchanged.
+- Added an administrator-only source field catalog API and unavailable-field
+  notices; rules remain editable when their original fields disappear.
 - Administrators can inspect original source XML with readable indentation and
   preserved field names/namespaces. Inspection fetches fresh data without changing
   stored articles or refresh state; embedded HTML is displayed as text.
@@ -11,6 +16,18 @@
   immediately reapplies filters to the affected output without changing siblings.
 - Feed settings group filter rules and filtered entries into keyboard-accessible
   tabs, with rule and filtered entry counts shown in the tab labels.
+
+### Changed
+
+- Database upgrades preserve existing articles and rules; original field values
+  become available only when those articles are fetched again. Retention also
+  removes original field values, not the rules referencing them.
+- Configuration exports use schema 3; schemas 1 and 2 still import through strict
+  conversion. Older application versions cannot import schema 3 exports.
+- Source refreshes reject DTD/entity definitions and enforce response, XML depth,
+  entry-count, field-count, and text-size limits without partial article updates.
+  Malformed XML retains tolerant ingestion but exposes no original field values
+  for that refresh and shows an extraction warning.
 
 ## 0.5.0
 

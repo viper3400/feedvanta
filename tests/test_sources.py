@@ -362,7 +362,7 @@ def test_source_management_requires_admin(configured, role, expected):
         assert client.get(f"/reader/{first}").status_code == 200
 
 
-def test_v1_import_and_v2_shared_source_roundtrip(configured, monkeypatch):
+def test_v1_import_and_current_shared_source_roundtrip(configured, monkeypatch):
     app, client, source_id, _ = configured
     mock_feed(monkeypatch)
     app.state.service.refresh_source(source_id)
@@ -373,7 +373,7 @@ def test_v1_import_and_v2_shared_source_roundtrip(configured, monkeypatch):
     }
     assert client.post("/api/config/import", json=legacy).json() == {"imported_feeds": 1, "config_version": 42}
     exported = client.get("/api/config/export").json()
-    assert exported["schema_version"] == 2
+    assert exported["schema_version"] == 3
     assert exported["sources"][0]["enabled"] is False
     assert exported["sources"][0]["refresh_interval"] == 60
     assert exported["feeds"][0]["name"] == "Old output"
@@ -426,7 +426,7 @@ def test_config_form_migrates_v1_and_rejects_malformed_input(configured):
         assert client.post("/admin/config/import", files={"config_file": ("config.json", payload, "application/json")}).status_code == 409
     payload = b'{"app_version":"0.4.0","schema_version":1,"config_version":9,"feeds":[]}'
     assert client.post("/admin/config/import", files={"config_file": ("config.json", payload, "application/json")}, follow_redirects=False).status_code == 303
-    assert client.get("/api/config/export").json()["schema_version"] == 2
+    assert client.get("/api/config/export").json()["schema_version"] == 3
 
 
 @pytest.mark.parametrize("invalid", ["duplicate", "extra", "rule", "interval", "name"])
