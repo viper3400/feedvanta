@@ -20,6 +20,11 @@
   <form method="post" action="{{ url_for('refresh_form', feed_id=feed.id) }}"><button class="rounded-lg bg-slate-100 px-3 py-2">Alle Feeds jetzt laden</button></form>
 </section>
 <section class="mb-4 rounded-2xl bg-white/90 p-5 shadow-sm">
+  <div id="filter-tabs" class="mb-5 flex gap-6 overflow-x-auto border-b border-slate-200" role="tablist" aria-label="Filter und Einträge" hidden>
+    <button type="button" id="rules-tab" role="tab" aria-controls="rules-panel" aria-selected="true" tabindex="0" class="shrink-0 cursor-pointer whitespace-nowrap border-b-4 border-transparent px-1 py-3 text-sm font-semibold text-slate-500 hover:text-indigo-700 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 aria-selected:border-indigo-600 aria-selected:text-indigo-700">Filterregeln <span class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{{ feed.rules | length }}</span></button>
+    <button type="button" id="filtered-tab" role="tab" aria-controls="filtered-panel" aria-selected="false" tabindex="-1" class="shrink-0 cursor-pointer whitespace-nowrap border-b-4 border-transparent px-1 py-3 text-sm font-semibold text-slate-500 hover:text-indigo-700 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 aria-selected:border-indigo-600 aria-selected:text-indigo-700">Ausgefilterte Einträge <span class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs">{{ feed.hidden_count }}</span></button>
+  </div>
+  <section id="rules-panel" aria-labelledby="rules-tab">
   <h2 class="mb-3 text-lg font-semibold">Filterregeln</h2>
   <p class="mb-3 text-sm text-slate-500">Diese Regeln gelten unabhängig von allen anderen Ausgabe-Feeds.</p>
   {% for rule in feed.rules %}
@@ -43,11 +48,47 @@
     <select class="rounded-lg border border-slate-200 p-3" name="operator"><option value="contains">enthält</option><option value="regex">Regex</option><option value="equals">entspricht</option></select>
     <input class="min-w-48 flex-1 rounded-lg border border-slate-200 p-3" name="value" required maxlength="1000" placeholder="Filterwert"><button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Regel hinzufügen</button>
   </form>
-</section>
-<section class="rounded-2xl bg-white/90 p-5 shadow-sm">
+  </section>
+  <section id="filtered-panel" aria-labelledby="filtered-tab">
   <h2 class="text-lg font-semibold">Ausgefilterte Einträge</h2>
   <p class="my-2 text-sm text-slate-500">Die Begründung wird aus den aktuell aktiven Filterregeln dieses Ausgabe-Feeds abgeleitet.</p>
   {% if hidden_entries_truncated %}<p class="mb-3 text-sm text-slate-500">Es werden die neuesten 100 von {{ feed.hidden_count }} ausgefilterten Einträgen angezeigt.</p>{% endif %}
   {% for entry in hidden_entries %}<article class="my-3 rounded-xl bg-slate-50 p-4"><strong>{% if entry.url %}<a href="{{ entry.url }}">{{ entry.title or entry.url }}</a>{% else %}{{ entry.title or 'Ohne Titel' }}{% endif %}</strong><p class="my-2 text-sm text-slate-500">{{ entry.published or entry.fetched_at }}</p><ul class="list-inside list-disc text-sm">{% for reason in entry.filter_reasons %}<li>{{ reason }}</li>{% else %}<li>Mit den aktuellen Regeln lässt sich kein Grund ermitteln.</li>{% endfor %}</ul></article>{% else %}<p class="mt-3 text-sm text-slate-500">Keine ausgefilterten Einträge vorhanden.</p>{% endfor %}
+  </section>
 </section>
+<script>
+(() => {
+  const tablist = document.getElementById('filter-tabs');
+  const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+  const panels = tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')));
+
+  function selectTab(index) {
+    tabs.forEach((tab, current) => {
+      const selected = current === index;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      panels[current].hidden = !selected;
+    });
+  }
+
+  tabs.forEach((tab, index) => {
+    panels[index].setAttribute('role', 'tabpanel');
+    panels[index].tabIndex = 0;
+    tab.addEventListener('click', () => selectTab(index));
+    tab.addEventListener('keydown', event => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      selectTab(next);
+      tabs[next].focus();
+    });
+  });
+  selectTab(0);
+  tablist.hidden = false;
+})();
+</script>
 {% endblock %}

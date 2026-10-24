@@ -6,6 +6,8 @@
 
 - Filter rules can be edited in the feed settings and through the API; saving
   immediately reapplies filters to the affected output without changing siblings.
+- Feed settings group filter rules and filtered entries into keyboard-accessible
+  tabs, with rule and filtered entry counts shown in the tab labels.
 
 ## 0.5.0
 

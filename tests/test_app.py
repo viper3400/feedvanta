@@ -136,6 +136,13 @@ def test_feed_rule_and_rss_api(tmp_path: Path):
         assert "Regel hinzufügen" in details.text
         assert "Feed löschen" in details.text
         assert "Ausgefilterte Einträge" in details.text
+        assert 'role="tablist" aria-label="Filter und Einträge" hidden' in details.text
+        assert 'aria-controls="rules-panel" aria-selected="true"' in details.text
+        assert '>Filterregeln <span class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs">1</span></button>' in details.text
+        assert 'aria-controls="filtered-panel" aria-selected="false"' in details.text
+        assert '>Ausgefilterte Einträge <span class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs">1</span></button>' in details.text
+        assert '<section id="rules-panel" aria-labelledby="rules-tab">' in details.text
+        assert '<section id="filtered-panel" aria-labelledby="filtered-tab">' in details.text
         assert "Versteckter Artikel" in details.text
         assert "Ausschlussregel" in details.text
         rss = client.get(f"/feed/{feed_id}.xml")
