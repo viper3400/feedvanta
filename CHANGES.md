@@ -1,5 +1,12 @@
 # Changes
 
+## 0.6.0
+
+### Added
+
+- Filter rules can be edited in the feed settings and through the API; saving
+  immediately reapplies filters to the affected output without changing siblings.
+
 ## 0.5.0
 
 ### Added

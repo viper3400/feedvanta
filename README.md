@@ -200,6 +200,9 @@ Quellen werden jede Minute auf ihre individuelle Aktualisierungsfrist geprüft, 
 - `PATCH /feedvanta/api/sources/{id}` – `enabled` und/oder `refresh_interval` ändern
 - `POST /feedvanta/api/sources/{id}/refresh` – Quelle sofort abrufen
 - `DELETE /feedvanta/api/sources/{id}?confirm=true` – Quelle samt Ausgaben, Regeln und Artikeln löschen; bei vorhandenen Ausgaben ist `confirm=true` erforderlich
+- `PATCH /feedvanta/api/rules/{id}` – Regel mit `field`, `operator`, `value` und
+  `action` bearbeiten; ID und Aktivierungszustand bleiben erhalten, Filter werden
+  für den betroffenen Ausgabe-Feed sofort neu angewendet
 - `DELETE /feedvanta/api/rules/{id}` – Regel löschen
 - `GET /feedvanta/api/config/export` – versionierte Feedkonfiguration exportieren
 - `POST /feedvanta/api/config/import` – versionierte Feedkonfiguration ersetzen

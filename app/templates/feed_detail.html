@@ -22,7 +22,21 @@
 <section class="mb-4 rounded-2xl bg-white/90 p-5 shadow-sm">
   <h2 class="mb-3 text-lg font-semibold">Filterregeln</h2>
   <p class="mb-3 text-sm text-slate-500">Diese Regeln gelten unabhängig von allen anderen Ausgabe-Feeds.</p>
-  {% for rule in feed.rules %}<div class="mb-2 flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><span class="text-sm"><strong>{{ rule.action }}</strong> · {{ rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="text-red-700" aria-label="Regel löschen">×</button></form></div>{% else %}<p class="mb-3 text-sm text-slate-500">Noch keine Filterregeln.</p>{% endfor %}
+  {% for rule in feed.rules %}
+  <div class="mb-2 rounded-xl bg-slate-50 p-3">
+    <div class="flex items-center justify-between gap-3"><span class="text-sm"><strong>{{ rule.action }}</strong> · {{ rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="text-red-700" aria-label="Regel löschen">×</button></form></div>
+    <details>
+      <summary class="text-sm text-indigo-700">Regel bearbeiten</summary>
+      <form class="flex flex-wrap gap-2" method="post" action="{{ url_for('update_rule_form', rule_id=rule.id) }}">
+        <label>Aktion <select class="rounded-lg border border-slate-200 p-3" name="action">{% for value, label in [('exclude', 'ausschließen'), ('include', 'einschließen')] %}<option value="{{ value }}"{% if rule.action == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Feld <select class="rounded-lg border border-slate-200 p-3" name="field">{% for value, label in [('all', 'alles'), ('title', 'Titel'), ('content', 'Inhalt'), ('author', 'Autor'), ('category', 'Kategorie')] %}<option value="{{ value }}"{% if rule.field == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Operator <select class="rounded-lg border border-slate-200 p-3" name="operator">{% for value, label in [('contains', 'enthält'), ('regex', 'Regex'), ('equals', 'entspricht')] %}<option value="{{ value }}"{% if rule.operator == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Filterwert <input class="rounded-lg border border-slate-200 p-3" name="value" value="{{ rule.value }}" required maxlength="1000"></label>
+        <button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">Regel speichern</button>
+      </form>
+    </details>
+  </div>
+  {% else %}<p class="mb-3 text-sm text-slate-500">Noch keine Filterregeln.</p>{% endfor %}
   <form class="flex flex-wrap gap-2" method="post" action="{{ url_for('create_rule_form', feed_id=feed.id) }}">
     <select class="rounded-lg border border-slate-200 p-3" name="action"><option value="exclude">ausschließen</option><option value="include">einschließen</option></select>
     <select class="rounded-lg border border-slate-200 p-3" name="field"><option value="all">alles</option><option value="title">Titel</option><option value="content">Inhalt</option><option value="author">Autor</option><option value="category">Kategorie</option></select>

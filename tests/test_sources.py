@@ -88,6 +88,106 @@ def test_independent_outputs_share_fetch_and_articles(configured, monkeypatch):
     assert "Gefilterten Feed hinzufügen" in client.get("/").text
 
 
+def test_edit_rule_reapplies_only_its_output(configured, monkeypatch):
+    app, client, source_id, first = configured
+    sibling = add_output(client, source_id, "Sibling")
+    rule_id = add_rule(client, first, "python")
+    add_rule(client, sibling, "python")
+    mock_feed(monkeypatch)
+    app.state.service.refresh_source(source_id)
+    revision = app.state.configuration_service.revision()
+    payload = {"field": "title", "operator": "equals", "value": "Security news", "action": "include"}
+
+    response = client.patch(f"/api/rules/{rule_id}", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"id": rule_id}
+    assert article_titles(client, first) == ["Security news"]
+    assert article_titles(client, sibling) == ["Python news"]
+    assert "Python news" not in client.get(f"/reader/{first}").text
+    assert app.state.configuration_service.revision() == revision + 1
+    rule = client.get("/api/feeds").json()[0]["rules"][0]
+    assert rule == {"id": rule_id, "feed_id": first, "enabled": 1, **payload}
+    assert client.patch(f"/api/rules/{rule_id}", json=payload).status_code == 200
+    assert app.state.configuration_service.revision() == revision + 1
+
+
+def test_edit_rule_form_preserves_disabled_state_and_prefix(configured, monkeypatch):
+    app, client, source_id, first = configured
+    rule_id = add_rule(client, first, "python")
+    with app.state.db.connect() as conn:
+        conn.execute("UPDATE filter_rules SET enabled=0 WHERE id=?", (rule_id,))
+    mock_feed(monkeypatch)
+    app.state.service.refresh_source(source_id)
+    with TestClient(SubpathMiddleware(app, "/prefix/feedvanta")) as prefixed:
+        authenticate(prefixed, app)
+        base = "/prefix/feedvanta"
+        details = prefixed.get(f"{base}/feeds/{first}").text
+        assert f'action="http://testserver{base}/rules/{rule_id}/edit"' in details
+        assert 'value="python"' in details
+        for selected in ("include", "title", "contains"):
+            assert f'value="{selected}" selected' in details
+        response = prefixed.post(f"{base}/rules/{rule_id}/edit", data={
+            "field": "all", "operator": "regex", "value": 'Security|"Python"', "action": "exclude",
+        }, follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == f"http://testserver{base}/feeds/{first}"
+        assert 'value="Security|&#34;Python&#34;"' in prefixed.get(response.headers["location"]).text
+    rule = client.get("/api/feeds").json()[0]["rules"][0]
+    assert rule["id"] == rule_id and rule["enabled"] == 0
+    assert rule["field"] == "all" and rule["operator"] == "regex" and rule["action"] == "exclude"
+    assert len(article_titles(client, first)) == 2
+
+
+@pytest.mark.parametrize("changes", [
+    {"field": "unknown"}, {"operator": "unknown"}, {"action": "unknown"},
+    {"value": ""}, {"value": "x" * 1001}, {"field": None},
+])
+def test_edit_rule_rejects_invalid_values(configured, changes):
+    app, client, _, first = configured
+    rule_id = add_rule(client, first, "python")
+    before = client.get("/api/feeds").json()
+    revision = app.state.configuration_service.revision()
+    payload = {"field": "title", "operator": "contains", "value": "python", "action": "include", **changes}
+    assert client.patch(f"/api/rules/{rule_id}", json=payload).status_code == 422
+    assert client.post(f"/rules/{rule_id}/edit", data=payload).status_code == 422
+    assert client.get("/api/feeds").json() == before
+    assert app.state.configuration_service.revision() == revision
+
+
+def test_edit_rule_missing_and_unauthorized(configured):
+    app, client, _, first = configured
+    rule_id = add_rule(client, first, "python")
+    payload = {"field": "title", "operator": "contains", "value": "security", "action": "include"}
+    revision = app.state.configuration_service.revision()
+    assert client.patch("/api/rules/999", json=payload).status_code == 404
+    assert client.post("/rules/999/edit", data=payload).status_code == 404
+    client.cookies.clear()
+    assert client.patch(f"/api/rules/{rule_id}", json=payload).status_code == 401
+    assert client.post(f"/rules/{rule_id}/edit", data=payload).status_code == 401
+    authenticate(client, app, sub="other", email="other@example.com")
+    assert client.patch(f"/api/rules/{rule_id}", json=payload).status_code == 403
+    assert client.post(f"/rules/{rule_id}/edit", data=payload).status_code == 403
+    assert app.state.configuration_service.revision() == revision
+
+
+def test_edit_rule_rolls_back_on_reapplication_failure(configured, monkeypatch):
+    app, client, _, first = configured
+    rule_id = add_rule(client, first, "python")
+    before = client.get("/api/feeds").json()
+    revision = app.state.configuration_service.revision()
+
+    def fail(conn, feed_id):
+        raise RuntimeError("Reapplication failed")
+
+    monkeypatch.setattr(app.state.service, "reapply_rules_in_transaction", fail)
+    with pytest.raises(RuntimeError, match="Reapplication failed"):
+        client.patch(f"/api/rules/{rule_id}", json={
+            "field": "title", "operator": "contains", "value": "security", "action": "include",
+        })
+    assert client.get("/api/feeds").json() == before
+    assert app.state.configuration_service.revision() == revision
+
+
 def test_refresh_upsert_failure_and_retention(configured, monkeypatch):
     app, client, source_id, first = configured
     second = add_output(client, source_id, "Python")

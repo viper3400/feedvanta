@@ -591,6 +591,38 @@ def create_app(
         insert_rule(feed_id, RuleCreate(field=field, operator=operator, value=value, action=action))
         return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
 
+    def save_rule(rule_id: int, payload: RuleCreate) -> int:
+        with database.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rule = conn.execute("SELECT * FROM filter_rules WHERE id=?", (rule_id,)).fetchone()
+            if not rule:
+                raise HTTPException(404, "Regel nicht gefunden")
+            if any(rule[key] != value for key, value in payload.model_dump().items()):
+                conn.execute(
+                    "UPDATE filter_rules SET field=?,operator=?,value=?,action=? WHERE id=?",
+                    (payload.field, payload.operator, payload.value, payload.action, rule_id),
+                )
+                bump_config_revision(conn)
+                service.reapply_rules_in_transaction(conn, rule["feed_id"])
+        return rule["feed_id"]
+
+    @app.patch("/api/rules/{rule_id}")
+    def update_rule(rule_id: int, payload: RuleCreate, _user: dict = Depends(require_admin)):
+        save_rule(rule_id, payload)
+        return {"id": rule_id}
+
+    @app.post("/rules/{rule_id}/edit")
+    def update_rule_form(
+        request: Request, rule_id: int,
+        field: str = Form(..., pattern="^(title|content|author|category|all)$"),
+        operator: str = Form(..., pattern="^(contains|regex|equals)$"),
+        value: str = Form(..., min_length=1, max_length=1000),
+        action: str = Form(..., pattern="^(exclude|include)$"),
+        _user: dict = Depends(require_admin),
+    ):
+        feed_id = save_rule(rule_id, RuleCreate(field=field, operator=operator, value=value, action=action))
+        return RedirectResponse(route_url(request, "feed_detail", feed_id=feed_id), status_code=303)
+
     def remove_rule(rule_id: int) -> int:
         with database.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
