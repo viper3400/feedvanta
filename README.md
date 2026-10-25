@@ -113,7 +113,7 @@ Für eine öffentliche Installation verlangt Google HTTPS; nur localhost ist fü
 
 FeedVanta unterscheidet vier unabhängige Versionen:
 
-- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.6.0`.
+- **App-Version** (`app_version`): Version des laufenden FeedVanta-Codes, derzeit `0.7.0`.
 - **Schema-Version** (`schema_version`): Struktur des JSON-Konfigurationsformats, derzeit `3`. Schema `1` und `2` werden beim Import automatisch konvertiert; unbekannte Versionen werden abgelehnt. Schema-3-Exporte können nicht in ältere Anwendungen importiert werden.
 - **Datenbankschema-Version** (`PRAGMA user_version`): Struktur der SQLite-Datenbank, derzeit `2`; wird unabhängig vom JSON-Format beim Start migriert.
 - **Config-Version** (`config_version`): Revision der konkreten Konfiguration. Änderungen an Quellen, Ausgabe-Feeds oder Filterregeln erhöhen sie. Abrufe, Aufbewahrungsbereinigung und strukturelle Migrationen ändern sie nicht. Beim Import wird die Revision der importierten Konfiguration übernommen.
@@ -124,7 +124,7 @@ Das Exportformat enthält ausschließlich Quellen, Ausgabe-Feeds und Filterregel
 
 ```json
 {
-  "app_version": "0.6.0",
+  "app_version": "0.7.0",
   "schema_version": 3,
   "config_version": 12,
   "exported_at": "2026-09-26T10:00:00+00:00",
