@@ -6,6 +6,13 @@
 
 - Creating and editing filter rules use matching controls without visible labels;
   editing remains collapsible and existing rule values are preserved.
+- Rule editing can be cancelled without saving. Creating, saving, and deleting
+  rules update in place, preserving scroll position and the active tab; deletion
+  uses an explicit action with confirmation, and failures retain draft values.
+- Expanded rule editors show save, delete, and cancel in a button row below the
+  rule fields, keeping collapsed summaries free of destructive actions.
+- Rule form requests use the submission URL even when the action dropdown
+  shadows the browser's form property, including saves without changes.
 
 ## 0.6.0
 

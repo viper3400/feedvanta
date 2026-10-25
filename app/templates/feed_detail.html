@@ -5,7 +5,7 @@
 <p class="mb-5"><a class="text-sm font-medium text-indigo-700" href="{{ url_for('index') }}">← Alle Feeds und Quellen</a></p>
 <header class="mb-6 flex items-center gap-4 rounded-2xl bg-white/90 p-5 shadow-sm">
   {% if feed.icon_url %}<img src="{{ feed.icon_url }}" alt="" width="52" height="52" class="rounded-xl object-contain">{% endif %}
-  <div><h1 class="text-3xl font-bold">{{ feed.name }}</h1><p class="text-sm text-slate-500">{{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert</p></div>
+  <div><h1 class="text-3xl font-bold">{{ feed.name }}</h1><p id="feed-counts" class="text-sm text-slate-500">{{ feed.visible_count }} sichtbar · {{ feed.hidden_count }} ausgefiltert</p></div>
 </header>
 <section class="mb-4 rounded-2xl bg-white/90 p-5 shadow-sm">
   <h2 class="mb-3 text-lg font-semibold">Ausgabe-Feed</h2>
@@ -30,15 +30,19 @@
   <h2 class="mb-3 text-lg font-semibold">Filterregeln</h2>
   <p class="mb-3 text-sm text-slate-500">Diese Regeln gelten unabhängig von allen anderen Ausgabe-Feeds.</p>
   <p class="mb-3 text-sm text-slate-500">Originalfelder werden beim Abruf aus den Einträgen dieser Quelle erkannt. Bestehende Artikel erhalten diese Werte erst, wenn sie erneut abgerufen werden. Fehlende oder leere Originalfelder treffen keine Regel; eine Einschlussregel kann solche Artikel deshalb ausblenden. „alles“ durchsucht weiterhin nur die normalisierten Felder Titel, Inhalt, Autor und Kategorie.</p>
+  <p id="rule-status" class="mb-3 text-sm" role="status" aria-live="polite"></p>
+  <div id="rule-list">
   {% for rule in feed.rules %}
-  <div class="mb-2 rounded-xl bg-slate-50 p-3">
-    <div class="flex items-center justify-between gap-3"><span class="text-sm"><strong>{{ rule.action }}</strong> · {{ field_label(rule.field) if rule.field.startswith('xml:') else rule.field }} {{ rule.operator }} „{{ rule.value }}“</span><form method="post" action="{{ url_for('delete_rule_form', rule_id=rule.id) }}"><button class="text-red-700" aria-label="Regel löschen">×</button></form></div>
+  <div class="mb-2 rounded-xl bg-slate-50 p-3" data-rule-id="{{ rule.id }}">
+    <p class="text-sm"><strong>{{ rule.action }}</strong> · {{ field_label(rule.field) if rule.field.startswith('xml:') else rule.field }} {{ rule.operator }} „{{ rule.value }}“</p>
     <details>
       <summary class="text-sm text-indigo-700">Regel bearbeiten</summary>
-      {{ rule_form(fields, url_for('update_rule_form', rule_id=rule.id), 'Regel speichern', rule) }}
+      {{ rule_form(fields, url_for('update_rule_form', rule_id=rule.id), 'Regel speichern', rule, url_for('delete_rule_form', rule_id=rule.id)) }}
     </details>
+    <p class="text-sm" data-rule-status role="status"></p>
   </div>
-  {% else %}<p class="mb-3 text-sm text-slate-500">Noch keine Filterregeln.</p>{% endfor %}
+  {% else %}<p class="mb-3 text-sm text-slate-500" data-empty-rules>Noch keine Filterregeln.</p>{% endfor %}
+  </div>
   {{ rule_form(fields, url_for('create_rule_form', feed_id=feed.id), 'Regel hinzufügen') }}
   </section>
   <section id="filtered-panel" aria-labelledby="filtered-tab">
@@ -83,4 +87,5 @@
   tablist.hidden = false;
 })();
 </script>
+{% include "rule_interactions.html" %}
 {% endblock %}

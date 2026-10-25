@@ -138,8 +138,17 @@ def test_rule_forms_share_controls_and_preserve_defaults(configured, field, oper
     edit_markup, edit = forms[f"http://testserver/rules/{rule_id}/edit"]
     assert "Regel hinzufügen" in create_markup
     assert "Regel speichern" in edit_markup
-    assert re.search(r"<details>\s*<summary[^>]*>Regel bearbeiten</summary>\s*"
-                     + re.escape(edit_markup) + r"\s*</details>", page)
+    editor = re.search(r"<details>\s*<summary[^>]*>Regel bearbeiten</summary>(.*?)</details>", page, re.DOTALL)
+    assert editor is not None
+    assert edit_markup in editor.group(1)
+    delete_markup, _ = forms[f"http://testserver/rules/{rule_id}/delete"]
+    assert delete_markup in editor.group(1)
+    assert editor.group(1).index(edit_markup) < editor.group(1).index(delete_markup)
+    assert f'id="delete-rule-{rule_id}"' in delete_markup
+    assert f'form="delete-rule-{rule_id}"' in edit_markup
+    assert edit_markup.index('>Regel speichern</button>') < edit_markup.index('>Regel löschen</button>') < edit_markup.index('>Abbrechen</button>')
+    assert edit_markup.index('name="value"') < edit_markup.index('>Regel speichern</button>')
+    assert edit_markup.count('class="flex w-full flex-wrap gap-2"') == 2
 
     for elements, expected in [(create, {"action": "exclude", "field": "all", "operator": "contains", "value": ""}),
                                (edit, payload)]:
@@ -156,8 +165,40 @@ def test_rule_forms_share_controls_and_preserve_defaults(configured, field, oper
         assert "required" in controls["value"]
 
     assert [(tag, attrs["class"]) for tag, attrs in create if "class" in attrs] == [
-        (tag, attrs["class"]) for tag, attrs in edit if "class" in attrs
+        (tag, attrs["class"]) for tag, attrs in edit
+        if "class" in attrs and "data-cancel-rule" not in attrs and "data-delete-rule" not in attrs
     ]
+    cancel = next(attrs for tag, attrs in edit if "data-cancel-rule" in attrs)
+    assert cancel["type"] == "button" and "hidden" in cancel
+    assert 'data-rule-form="edit"' in edit_markup
+    assert 'data-rule-form="create"' in create_markup
+    assert 'data-rule-form="delete" onsubmit="return confirm(' in page
+    assert '>Regel löschen</button>' in edit_markup
+    assert 'data-rule-form="delete"' not in page[:editor.start()]
+    assert 'id="rule-status"' in page
+
+
+def test_unchanged_rule_form_save_is_successful_without_reapplying(configured, monkeypatch):
+    app, client, _, feed_id = configured
+    rule_id = add_rule(client, feed_id, "python")
+    revision = app.state.configuration_service.revision()
+    before = client.get("/api/feeds").json()
+
+    def unexpected_reapply(*args):
+        pytest.fail("An unchanged rule must not reapply filters")
+
+    monkeypatch.setattr(app.state.service, "reapply_rules_in_transaction", unexpected_reapply)
+    # Browser fetch with FormData uses multipart encoding, including action.
+    response = client.post(f"/rules/{rule_id}/edit", files={
+        name: (None, value) for name, value in {
+            "action": "include", "field": "title", "operator": "contains", "value": "python",
+        }.items()
+    })
+    assert response.status_code == 200
+    assert 'id="rule-list"' in response.text
+    assert f'data-rule-id="{rule_id}"' in response.text
+    assert app.state.configuration_service.revision() == revision
+    assert client.get("/api/feeds").json() == before
 
 
 def test_edit_rule_form_preserves_disabled_state_and_prefix(configured, monkeypatch):

@@ -1,0 +1,106 @@
+<script>
+(() => {
+  const panel = document.getElementById('rules-panel');
+  const list = document.getElementById('rule-list');
+  const status = document.getElementById('rule-status');
+  let pending = false;
+
+  function enableCancel() {
+    panel.querySelectorAll('[data-cancel-rule]').forEach(button => { button.hidden = false; });
+    // Confirmation is handled below when JavaScript enhancement is active.
+    panel.querySelectorAll('[data-rule-form="delete"]').forEach(form => { form.onsubmit = null; });
+  }
+
+  panel.addEventListener('click', event => {
+    const cancel = event.target.closest('[data-cancel-rule]');
+    if (!cancel || pending) return;
+    const form = cancel.closest('form');
+    form.reset();
+    const editor = form.closest('details');
+    editor.open = false;
+    editor.querySelector('summary').focus({ preventScroll: true });
+    form.closest('[data-rule-id]').querySelector('[data-rule-status]').textContent = '';
+    status.textContent = '';
+  });
+
+  panel.addEventListener('submit', async event => {
+    const form = event.target.closest('[data-rule-form]');
+    if (!form) return;
+    event.preventDefault();
+    if (pending) return;
+    const operation = form.dataset.ruleForm;
+    if (operation === 'delete' && !window.confirm('Diese Regel wirklich löschen?')) return;
+    const row = form.closest('[data-rule-id]');
+    const id = row?.dataset.ruleId;
+    const feedback = row?.querySelector('[data-rule-status]') || status;
+    const body = new FormData(form);
+    const buttons = Array.from(panel.querySelectorAll('button'));
+    pending = true;
+    buttons.forEach(button => { button.disabled = true; });
+    panel.setAttribute('aria-busy', 'true');
+    status.textContent = '';
+    feedback.textContent = operation === 'delete' ? 'Wird gelöscht …' : 'Wird gespeichert …';
+    try {
+      // The control named "action" shadows HTMLFormElement.action.
+      const response = await fetch(form.getAttribute('action'), {
+        method: 'POST', body, credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        feedback.textContent = response.status === 422
+          ? 'Bitte die Regelwerte prüfen. Die Eingaben bleiben erhalten.'
+          : (response.status === 401 || response.status === 403
+            ? 'Aktion fehlgeschlagen. Bitte Anmeldung und Berechtigungen prüfen und erneut versuchen.'
+            : 'Aktion fehlgeschlagen. Die Eingaben bleiben erhalten. Bitte später erneut versuchen.');
+        return;
+      }
+      const fresh = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const freshList = fresh.getElementById('rule-list');
+      const refreshIds = ['feed-counts', 'filtered-panel'];
+      if (!freshList || refreshIds.some(key => !fresh.getElementById(key)) ||
+          !fresh.querySelector('#rules-tab span') || !fresh.querySelector('#filtered-tab span')) {
+        throw new Error('Unexpected response');
+      }
+      const replacement = id ? freshList.querySelector(`[data-rule-id="${id}"]`) : null;
+      if (operation === 'edit' && !replacement) throw new Error('Missing rule');
+
+      const x = window.scrollX;
+      const y = window.scrollY;
+      let focus;
+      if (operation === 'delete') {
+        focus = row.nextElementSibling?.querySelector('summary') || row.previousElementSibling?.querySelector('summary');
+        row.remove();
+      } else if (operation === 'edit') {
+        row.replaceWith(replacement);
+        focus = replacement.querySelector('summary');
+      } else {
+        freshList.querySelectorAll('[data-rule-id]').forEach(newRow => {
+          if (!list.querySelector(`[data-rule-id="${newRow.dataset.ruleId}"]`)) list.append(newRow);
+        });
+        form.reset();
+        focus = form.querySelector('[name="value"]');
+      }
+      list.querySelector('[data-empty-rules]')?.remove();
+      if (!list.querySelector('[data-rule-id]')) list.append(freshList.querySelector('[data-empty-rules]'));
+      refreshIds.forEach(key => {
+        document.getElementById(key).innerHTML = fresh.getElementById(key).innerHTML;
+      });
+      ['rules-tab', 'filtered-tab'].forEach(key => {
+        document.querySelector(`#${key} span`).textContent = fresh.querySelector(`#${key} span`).textContent;
+      });
+      enableCancel();
+      (focus || panel.querySelector('[data-rule-form="create"] [name="value"]')).focus({ preventScroll: true });
+      window.scrollTo(x, y);
+      const result = replacement?.querySelector('[data-rule-status]') || status;
+      result.textContent = operation === 'delete' ? 'Regel gelöscht.' : 'Regel gespeichert.';
+    } catch {
+      // A network failure may happen after the server has committed the change.
+      feedback.textContent = 'Aktion konnte nicht bestätigt werden. Die Eingaben bleiben erhalten. Bitte vor einem erneuten Versuch die Seite neu laden und den Regelstand prüfen.';
+    } finally {
+      pending = false;
+      buttons.forEach(button => { button.disabled = false; });
+      panel.removeAttribute('aria-busy');
+    }
+  });
+  enableCancel();
+})();
+</script>

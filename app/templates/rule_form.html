@@ -1,11 +1,18 @@
 {% from "field_options.html" import field_options %}
-{% macro rule_form(fields, action_url, button_text, rule=none) -%}
+{% macro rule_form(fields, action_url, button_text, rule=none, delete_url=none) -%}
 {% set values = rule if rule is not none else {'action': 'exclude', 'field': 'all', 'operator': 'contains', 'value': ''} %}
-<form class="flex flex-wrap gap-2" method="post" action="{{ action_url }}">
+<form class="flex flex-wrap gap-2" method="post" action="{{ action_url }}" data-rule-form="{{ 'edit' if rule is not none else 'create' }}">
+  <div class="flex w-full flex-wrap gap-2">
   <select class="rounded-lg border border-slate-200 p-3" name="action" aria-label="Aktion">{% for value, label in [('exclude', 'ausschließen'), ('include', 'einschließen')] %}<option value="{{ value }}"{% if values.action == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
   <select class="rounded-lg border border-slate-200 p-3" name="field" aria-label="Feld">{{ field_options(fields, values.field) }}</select>
   <select class="rounded-lg border border-slate-200 p-3" name="operator" aria-label="Operator">{% for value, label in [('contains', 'enthält'), ('regex', 'Regex'), ('equals', 'entspricht')] %}<option value="{{ value }}"{% if values.operator == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
   <input class="min-w-48 flex-1 rounded-lg border border-slate-200 p-3" name="value" aria-label="Filterwert" value="{{ values.value }}" required maxlength="1000" placeholder="Filterwert">
+  </div>
+  <div class="flex w-full flex-wrap gap-2">
   <button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">{{ button_text }}</button>
+  {% if rule is not none %}<button type="submit" form="delete-rule-{{ rule.id }}" class="rounded-lg border border-red-200 px-3 py-2 text-red-700" data-delete-rule>Regel löschen</button>{% endif %}
+  {% if rule is not none %}<button type="button" class="rounded-lg bg-slate-100 px-3 py-2" data-cancel-rule hidden>Abbrechen</button>{% endif %}
+  </div>
 </form>
+{% if rule is not none %}<form id="delete-rule-{{ rule.id }}" method="post" action="{{ delete_url }}" data-rule-form="delete" onsubmit="return confirm('Diese Regel wirklich löschen?')"></form>{% endif %}
 {%- endmacro %}
