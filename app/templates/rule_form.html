@@ -1,0 +1,11 @@
+{% from "field_options.html" import field_options %}
+{% macro rule_form(fields, action_url, button_text, rule=none) -%}
+{% set values = rule if rule is not none else {'action': 'exclude', 'field': 'all', 'operator': 'contains', 'value': ''} %}
+<form class="flex flex-wrap gap-2" method="post" action="{{ action_url }}">
+  <select class="rounded-lg border border-slate-200 p-3" name="action" aria-label="Aktion">{% for value, label in [('exclude', 'ausschließen'), ('include', 'einschließen')] %}<option value="{{ value }}"{% if values.action == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  <select class="rounded-lg border border-slate-200 p-3" name="field" aria-label="Feld">{{ field_options(fields, values.field) }}</select>
+  <select class="rounded-lg border border-slate-200 p-3" name="operator" aria-label="Operator">{% for value, label in [('contains', 'enthält'), ('regex', 'Regex'), ('equals', 'entspricht')] %}<option value="{{ value }}"{% if values.operator == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  <input class="min-w-48 flex-1 rounded-lg border border-slate-200 p-3" name="value" aria-label="Filterwert" value="{{ values.value }}" required maxlength="1000" placeholder="Filterwert">
+  <button class="rounded-lg bg-indigo-600 px-3 py-2 text-white">{{ button_text }}</button>
+</form>
+{%- endmacro %}

@@ -1,5 +1,12 @@
 # Changes
 
+## 0.7.0
+
+### Changed
+
+- Creating and editing filter rules use matching controls without visible labels;
+  editing remains collapsible and existing rule values are preserved.
+
 ## 0.6.0
 
 ### Added

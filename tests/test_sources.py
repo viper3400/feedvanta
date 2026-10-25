@@ -1,6 +1,8 @@
+import re
 import sqlite3
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from io import BytesIO
 from xml.etree.ElementTree import fromstring
 
@@ -109,6 +111,53 @@ def test_edit_rule_reapplies_only_its_output(configured, monkeypatch):
     assert rule == {"id": rule_id, "feed_id": first, "enabled": 1, **payload}
     assert client.patch(f"/api/rules/{rule_id}", json=payload).status_code == 200
     assert app.state.configuration_service.revision() == revision + 1
+
+
+@pytest.mark.parametrize("field,operator", [("title", "equals"), ("all", "regex")])
+def test_rule_forms_share_controls_and_preserve_defaults(configured, field, operator):
+    _, client, _, feed_id = configured
+    payload = {"field": field, "operator": operator, "value": 'News & "updates"', "action": "include"}
+    rule_id = client.post(f"/api/feeds/{feed_id}/rules", json=payload).json()["id"]
+    page = client.get(f"/feeds/{feed_id}").text
+
+    class FormParser(HTMLParser):
+        def __init__(self, markup):
+            super().__init__()
+            self.elements = []
+            self.feed(markup)
+
+        def handle_starttag(self, tag, attrs):
+            self.elements.append((tag, dict(attrs)))
+
+    forms = {}
+    for markup in re.findall(r"<form\b[^>]*>.*?</form>", page, re.DOTALL):
+        parsed = FormParser(markup)
+        forms[parsed.elements[0][1]["action"]] = (markup, parsed.elements)
+
+    create_markup, create = forms[f"http://testserver/feeds/{feed_id}/rules"]
+    edit_markup, edit = forms[f"http://testserver/rules/{rule_id}/edit"]
+    assert "Regel hinzufügen" in create_markup
+    assert "Regel speichern" in edit_markup
+    assert re.search(r"<details>\s*<summary[^>]*>Regel bearbeiten</summary>\s*"
+                     + re.escape(edit_markup) + r"\s*</details>", page)
+
+    for elements, expected in [(create, {"action": "exclude", "field": "all", "operator": "contains", "value": ""}),
+                               (edit, payload)]:
+        assert not any(tag == "label" for tag, _ in elements)
+        controls = {attrs["name"]: attrs for tag, attrs in elements if tag in {"select", "input"}}
+        assert list(controls) == ["action", "field", "operator", "value"]
+        assert [attrs["aria-label"] for attrs in controls.values()] == ["Aktion", "Feld", "Operator", "Filterwert"]
+        assert [attrs["value"] for tag, attrs in elements if tag == "option" and "selected" in attrs] == [
+            expected["action"], expected["field"], expected["operator"],
+        ]
+        assert controls["value"]["value"] == expected["value"]
+        assert controls["value"]["placeholder"] == "Filterwert"
+        assert controls["value"]["maxlength"] == "1000"
+        assert "required" in controls["value"]
+
+    assert [(tag, attrs["class"]) for tag, attrs in create if "class" in attrs] == [
+        (tag, attrs["class"]) for tag, attrs in edit if "class" in attrs
+    ]
 
 
 def test_edit_rule_form_preserves_disabled_state_and_prefix(configured, monkeypatch):
