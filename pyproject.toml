@@ -25,7 +25,7 @@ build-backend = "setuptools.build_meta"
 feedvanta = "app.plugin:PLUGIN"
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9"]
+test = ["pytest>=9,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
